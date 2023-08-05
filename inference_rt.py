@@ -106,8 +106,8 @@ def get_io_stream_callback(
                 except Empty:
                     pass
 
-        #if p_id and p_id % 3 == 0:
-        _LOGGER.info(f"roundtrip: {time.time() - p_start_s}")
+        if p_start_s is not None:
+            _LOGGER.info(f"roundtrip: {time.time() - p_start_s}")
 
         PACKET_START_S = time.time()
         return (out_data, pyaudio.paContinue)
