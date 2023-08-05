@@ -63,7 +63,6 @@ def get_io_stream_callback(
     data: list,
     q_out: Queue,
     q_out_counter: Value,
-    MAX_RECORD_SEGMENTS: int,
 ) -> Callable:
     def callback(in_data, frame_count, time_info, status):
         global PACKET_START_S, WAV, BUFFER_OVERFLOW
@@ -200,11 +199,8 @@ def run_inference_rt(
 
     HDW_FRAMES_PER_BUFFER = math.ceil(sample_rate * opt.callback_latency_ms.value / 1000)
     NUM_CHUNKS = math.ceil(MAX_INFER_SAMPLES_VC / HDW_FRAMES_PER_BUFFER)
-    MAX_RECORD_SEGMENTS = 5 * 60 * sample_rate // HDW_FRAMES_PER_BUFFER  # 5 mins in duration
-    # make sure dependencies are updated before starting the pipeline
-    _LOGGER.debug(f"MAX_RECORD_SEGMENTS: {MAX_RECORD_SEGMENTS}")
-    _LOGGER.debug(f"HDW_FRAMES_PER_BUFFER: {HDW_FRAMES_PER_BUFFER}")
-    _LOGGER.debug(f"NUM_CHUNKS: {NUM_CHUNKS}")
+    _LOGGER.info(f"HDW_FRAMES_PER_BUFFER: {HDW_FRAMES_PER_BUFFER}")
+    _LOGGER.info(f"NUM_CHUNKS: {NUM_CHUNKS}")
 
     # init
     stop_process = Value("i", 0)
@@ -258,7 +254,6 @@ def run_inference_rt(
                 data,
                 q_out,
                 q_out_counter,
-                MAX_RECORD_SEGMENTS,
             ),
         )
         io_stream.start_stream()
