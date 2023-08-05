@@ -22,16 +22,16 @@ from voice_conversion import StudioModelConversionPipeline
 _LOGGER = get_logger(os.path.basename(__file__))
 SESSION_ID = datetime.now().strftime("%Y-%m-%d--%H-%M-%S")
 
+sample_rate = 22050 # sampling rate yeah!
 num_samples = 128  # input spect shape num_mels * num_samples
 hop_length = 256  # int(0.0125 * sample_rate)  # 12.5ms - in line with Tacotron 2 paper
+hop_length = int(0.0125 * sample_rate)  # Let's actually try that math, in line with Tacotron 2 paper
 
 # corresponds to 1.486s of audio, or 32768 samples in the time domain. This is the number of samples
 # fed into the VC module
 MAX_INFER_SAMPLES_VC = num_samples * hop_length
 
-sample_rate = 22050
 SEED = 1234  # numpy & torch PRNG seed
-
 set_seed(SEED)
 
 class InferencePipelineMode(Enum):
@@ -168,7 +168,7 @@ def conversion_process_target(
     voice_conversion = ConversionPipeline(opt)
 
     # warmup models into the cache
-    warmup_iterations = 20
+    warmup_iterations = 10
     for _ in range(warmup_iterations):
         wav = np.random.rand(MAX_INFER_SAMPLES_VC).astype(np.float32)
         voice_conversion.run(wav, HDW_FRAMES_PER_BUFFER)
