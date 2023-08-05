@@ -52,7 +52,7 @@ FORMAT = pyaudio.paFloat32
 CHANNELS = 1
 RATE = sample_rate
 
-PACKET_START_S = None
+PACKET_START_S = time.time()
 WAV: Optional[np.ndarray] = None
 
 # TODO sidroopdaska: remove numpy.ndarray allocation
@@ -107,7 +107,7 @@ def get_io_stream_callback(
                     pass
 
         #if p_id and p_id % 3 == 0:
-            _LOGGER.info(f"roundtrip: {time.time() - p_start_s}")
+        _LOGGER.info(f"roundtrip: {time.time() - p_start_s}")
 
         PACKET_START_S = time.time()
         return (out_data, pyaudio.paContinue)
