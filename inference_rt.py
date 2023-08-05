@@ -52,12 +52,8 @@ FORMAT = pyaudio.paFloat32
 CHANNELS = 1
 RATE = sample_rate
 
-# serves as the head pointer for the audio_in & audio_out circular buffers
-PACKET_ID = 0
-BUFFER_OVERFLOW = False
 PACKET_START_S = None
 WAV: Optional[np.ndarray] = None
-
 
 # TODO sidroopdaska: remove numpy.ndarray allocation
 # TODO sidroopdaska: create a lock-free, single producer and single consumer ring buffer
@@ -65,14 +61,12 @@ def get_io_stream_callback(
     q_in: Queue,
     q_in_counter: Value,
     data: list,
-    audio_in: list,
     q_out: Queue,
     q_out_counter: Value,
-    audio_out: list,
     MAX_RECORD_SEGMENTS: int,
 ) -> Callable:
     def callback(in_data, frame_count, time_info, status):
-        global PACKET_ID, PACKET_START_S, WAV, BUFFER_OVERFLOW
+        global PACKET_START_S, WAV, BUFFER_OVERFLOW
 
         _LOGGER.debug(f"io_stream_callback duration={time.time() - PACKET_START_S}")
         _LOGGER.debug(f"io_stream_callback frame_count={frame_count}")
@@ -81,11 +75,9 @@ def get_io_stream_callback(
 
         in_data_np = np.frombuffer(in_data, dtype=np.float32)
 
-        audio_in[PACKET_ID] = in_data_np
         data.append(in_data_np)
         q_in.put_nowait(
             (
-                PACKET_ID,
                 PACKET_START_S,
                 # passing data as bytes in multiprocessing:Queue is quicker
                 np.array(data).flatten().astype(np.float32)[-MAX_INFER_SAMPLES_VC:].tobytes(),
@@ -95,13 +87,13 @@ def get_io_stream_callback(
 
         # prepare output
         out_data = None
-        p_id, p_start_s = None, None
+        p_start_s = None
 
         if q_out_counter.value == 0:
             _LOGGER.info("q_out: underflow")
             out_data = np.zeros(frame_count).astype(np.float32).tobytes()
         elif q_out_counter.value == 1:
-            p_id, p_start_s, out_data = q_out.get_nowait()
+            p_start_s, out_data = q_out.get_nowait()
             q_out_counter.increment(-1)
 
         else:
@@ -109,22 +101,13 @@ def get_io_stream_callback(
 
             while not q_out.empty():
                 try:
-                    p_id, p_start_s, out_data = q_out.get_nowait()
+                    p_start_s, out_data = q_out.get_nowait()
                     q_out_counter.increment(-1)
                 except Empty:
                     pass
 
-        if p_id and p_id % 3 == 0:
+        #if p_id and p_id % 3 == 0:
             _LOGGER.info(f"roundtrip: {time.time() - p_start_s}")
-
-        audio_out[PACKET_ID] = np.frombuffer(out_data, dtype=np.float32)
-
-        # update vars
-        if (PACKET_ID + 1) >= MAX_RECORD_SEGMENTS:
-            PACKET_ID = 0
-            BUFFER_OVERFLOW = True
-        else:
-            PACKET_ID += 1
 
         PACKET_START_S = time.time()
         return (out_data, pyaudio.paContinue)
@@ -194,13 +177,13 @@ def conversion_process_target(
 
     try:
         while not stop.value:
-            p_id, p_start_s, wav_bytes = q_in.get()
+            p_start_s, wav_bytes = q_in.get()
             q_in_counter.increment(-1)
 
             wav = np.frombuffer(wav_bytes, dtype=np.float32)
             out = voice_conversion.run(wav, HDW_FRAMES_PER_BUFFER)
 
-            q_out.put_nowait((p_id, p_start_s, out.tobytes()))
+            q_out.put_nowait((p_start_s, out.tobytes()))
             q_out_counter.increment()
     except KeyboardInterrupt:
         pass
@@ -224,9 +207,6 @@ def run_inference_rt(
     _LOGGER.debug(f"NUM_CHUNKS: {NUM_CHUNKS}")
 
     # init
-    audio_in = np.zeros((MAX_RECORD_SEGMENTS, HDW_FRAMES_PER_BUFFER), dtype=np.float32)
-    audio_out = np.zeros((MAX_RECORD_SEGMENTS, HDW_FRAMES_PER_BUFFER), dtype=np.float32)
-
     stop_process = Value("i", 0)
     model_warmup_complete = Value("i", 0)
     q_in, q_out = Queue(), Queue()  # TODO sidroopdaska: create wrapper class for multiprocessing:Queue & shared counter
@@ -276,10 +256,8 @@ def run_inference_rt(
                 q_in,
                 q_in_counter,
                 data,
-                audio_in,
                 q_out,
                 q_out_counter,
-                audio_out,
                 MAX_RECORD_SEGMENTS,
             ),
         )
