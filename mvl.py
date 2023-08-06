@@ -62,15 +62,15 @@ if __name__ == '__main__':
         global voice_conversion
         
         if target_speaker is None or len(target_speaker) == 0:
-            return ["Select Voice - Currently: None", gr.update(interactive=False), "Invalid Voice selected, please pick another."]
+            return [gr.update(interactive=False), "Invalid Voice selected, please pick another."]
 
         voiceFile = os.path.join(voiceDirectory, f"{target_speaker}.npy")
         if not os.path.isfile(voiceFile):
-            return ["Select Voice - Currently: None", gr.update(interactive=False), "Selected Voice not found, please pick another."]
+            return [gr.update(interactive=False), "Selected Voice not found, please pick another."]
             
         voice_conversion.set_target(target_speaker)
             
-        return [f"Select Voice - Currently: {target_speaker}", gr.update(interactive=True), "Voice prepared! You can start now!"]
+        return [gr.update(interactive=True), "Voice prepared! You can start now!"]
 
     def startGenerateVoice(input, output, latency):
         global inference_rt_thread, voice_conversion
@@ -78,14 +78,14 @@ if __name__ == '__main__':
         inputDevice =  [p for p in devices['inputs'] if p.name == input];
         
         if inputDevice is None or len(inputDevice) != 1:
-            return [gr.update(interactive=True), gr.update(interactive=False), "Invalid input device selected, conversion not started."]
+            return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), "Invalid input device selected, conversion not started."]
             
         outputDevice =  [p for p in devices['outputs'] if p.name == output];
         if outputDevice is None or len(outputDevice) != 1:
-            return [gr.update(interactive=True), gr.update(interactive=False), "Invalid input device selected, conversion not started."]
+            return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), "Invalid input device selected, conversion not started."]
             
         if not voice_conversion.isTargetSet:
-            return [gr.update(interactive=True), gr.update(interactive=False), "A voice is not selected yet, conversion not started."]
+            return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), "A voice is not selected yet, conversion not started."]
 
         start_queue = queue.Queue()
         stop_queue = queue.Queue()
@@ -116,14 +116,13 @@ if __name__ == '__main__':
             latencySlider = gr.Slider(100, 2000, label="Latency (one way)", step=50, value=300);
         with gr.Row():
             voiceDrop = gr.Dropdown(choices=voices, value="yara", label="Voice File");
-            voiceSetButton = gr.Button("Select Voice - Currently: yara");
             startButton = gr.Button(value="Start", interactive=True);
             stopButton = gr.Button(value="Stop", interactive=False);
         with gr.Row():
             text = gr.Textbox(label="Status");
             
-        voiceSetButton.click(fn=setVoice, inputs=[voiceDrop], outputs=[voiceSetButton, startButton, text])
-        startButton.click(fn=startGenerateVoice, inputs=[inputDrop, outputDrop, latencySlider], outputs=[voiceSetButton, startButton, stopButton, text])
-        stopButton.click(fn=stopGenerateVoice, inputs=None, outputs=[voiceSetButton, startButton, stopButton, text])
+        voiceDrop.input(fn=setVoice, inputs=[voiceDrop], outputs=[startButton, text])
+        startButton.click(fn=startGenerateVoice, inputs=[inputDrop, outputDrop, latencySlider], outputs=[voiceDrop, startButton, stopButton, text])
+        stopButton.click(fn=stopGenerateVoice, inputs=None, outputs=[voiceDrop, startButton, stopButton, text])
 
     demo.launch()
