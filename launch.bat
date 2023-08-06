@@ -44,7 +44,7 @@ echo venv %PYTHON%
 goto :launch
 
 :launch
-%PYTHON% mvl.py %*
+%PYTHON% launch.py %*
 pause
 exit /b
 

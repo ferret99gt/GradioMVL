@@ -1,7 +1,7 @@
 from typing import Dict, List
 
 import sounddevice as sd
-from util.data_types import DeviceInfo
+from modules.data_types import DeviceInfo
 
 
 def get_devices() -> Dict[str, List[DeviceInfo]]:

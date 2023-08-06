@@ -8,7 +8,7 @@ from struct import unpack
 import librosa
 import numpy as np
 import torch
-from util.torch_utils import get_device, is_mps_available
+from modules.torch_utils import get_device, is_mps_available
 
 STUDIO_MODELS_ROOT = "studio_models"
 
