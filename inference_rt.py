@@ -193,5 +193,5 @@ class InferenceRt(threading.Thread):
                 except Empty:
                     pass
 
-            del q_in, q_out, stop_conversion, model_warmup_complete
+            del q_in, q_out, start_queue, stop_queue
             _LOGGER.info("Done cleaning, exiting.")
