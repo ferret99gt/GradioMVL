@@ -1,46 +1,49 @@
-import argparse
 import gradio as gr
-import multiprocessing
+import math
+import numpy as np
 import os
+import queue
+import threading
 import time
 
+from inference_rt import InferenceRt
 from typing import Optional
 from util.data_types import DeviceMap
 from util.portaudio_utils import get_devices
-from inference_rt import run_inference_rt, InferencePipelineMode
+from util.torch_utils import set_seed
+from voice_conversion import ConversionPipeline
 
 # venv\Scripts\pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 # venv\Scripts\pip install gradio sounddevice pyaudio librosa
 
-convert_process: Optional[multiprocessing.Process] = None
-stop_pipeline: Optional[multiprocessing.Value] = None
-has_pipeline_started: Optional[multiprocessing.Value] = None
-callback_latency_ms: Optional[multiprocessing.Value] = None
-
-def convert_process_target(
-        stop_pipeline: multiprocessing.Value,
-        has_pipeline_started: multiprocessing.Value,
-        input_device_idx: int,
-        output_device_idx: int,
-        callback_latency_ms: multiprocessing.Value,
-        target_speaker: str,
-    ):
-
-    opt = argparse.Namespace(
-        mode=InferencePipelineMode.online_crossfade,
-        input_device_idx=input_device_idx,
-        output_device_idx=output_device_idx,
-        callback_latency_ms=callback_latency_ms,
-        target_speaker=target_speaker,
-    )
-
-    run_inference_rt(
-        opt,
-        stop_pipeline=stop_pipeline,
-        has_pipeline_started=has_pipeline_started,
-    )
-
 if __name__ == '__main__':
+    sample_rate = 22050 # sampling rate yeah!
+    num_samples = 128  # input spect shape num_mels * num_samples
+    hop_length = 256  # int(0.0125 * sample_rate)  # 12.5ms - in line with Tacotron 2 paper
+    hop_length = int(0.0125 * sample_rate)  # Let's actually try that math, in line with Tacotron 2 paper!
+
+    # corresponds to 1.486s of audio, or 32768 samples in the time domain. This is the number of samples
+    # fed into the VC module
+    MAX_INFER_SAMPLES_VC = num_samples * hop_length
+
+    SEED = 1234  # numpy & torch PRNG seed
+    set_seed(SEED)
+
+    inference_rt_thread = None
+
+    # Create the model.
+    print("We're loading the model, please standby! Approximately 30-50 seconds!")
+    voice_conversion = ConversionPipeline(sample_rate)
+    voice_conversion.set_target("yara")
+    
+    # warmup models into the cache
+    warmup_iterations = 20
+    warmup_frames_per_buffer = math.ceil(sample_rate * 400 / 1000)
+    for _ in range(warmup_iterations):
+        wav = np.random.rand(MAX_INFER_SAMPLES_VC).astype(np.float32)
+        voice_conversion.run(wav, warmup_frames_per_buffer)
+    print("Model ready and warmed up!")
+
     # Retrieve available voices.
     voiceDirectory = "studio_models\\targets"
     voices = []
@@ -55,8 +58,22 @@ if __name__ == '__main__':
     inputNames = [p.name for p in devices['inputs']];
     outputNames = [p.name for p in devices['outputs']];
 
-    def generateVoice(input, output, target_speaker, latency):
-        global convert_process, stop_pipeline
+    def setVoice(target_speaker):
+        global voice_conversion
+        
+        if target_speaker is None or len(target_speaker) == 0:
+            return ["Select Voice - Currently: None", gr.update(interactive=False), "Invalid Voice selected, please pick another."]
+
+        voiceFile = os.path.join(voiceDirectory, f"{target_speaker}.npy")
+        if not os.path.isfile(voiceFile):
+            return ["Select Voice - Currently: None", gr.update(interactive=False), "Selected Voice not found, please pick another."]
+            
+        voice_conversion.set_target(target_speaker)
+            
+        return [f"Select Voice - Currently: {target_speaker}", gr.update(interactive=True), "Voice prepared! You can start now!"]
+
+    def startGenerateVoice(input, output, latency):
+        global inference_rt_thread, voice_conversion
     
         inputDevice =  [p for p in devices['inputs'] if p.name == input];
         
@@ -67,65 +84,46 @@ if __name__ == '__main__':
         if outputDevice is None or len(outputDevice) != 1:
             return [gr.update(interactive=True), gr.update(interactive=False), "Invalid input device selected, conversion not started."]
             
-        if target_speaker is None or len(target_speaker) == 0:
-            return [gr.update(interactive=True), gr.update(interactive=False), "Invalid Voice selected, conversion not started."]
+        if not voice_conversion.isTargetSet:
+            return [gr.update(interactive=True), gr.update(interactive=False), "A voice is not selected yet, conversion not started."]
 
-        voiceFile = os.path.join(voiceDirectory, f"{target_speaker}.npy")
-        if not os.path.isfile(voiceFile):
-            return [gr.update(interactive=True), gr.update(interactive=False), "Selected Voice not found, conversion not started."]
-            
-        stop_pipeline = multiprocessing.Value("i", 0)
-        has_pipeline_started = multiprocessing.Value("i", 0)
+        start_queue = queue.Queue()
+        stop_queue = queue.Queue()
         
-        input_device_idx = inputDevice[0].index
-        output_device_idx = outputDevice[0].index
-        callback_latency_ms = multiprocessing.Value("I", latency)
-        
-        convert_process = multiprocessing.Process(
-            target=convert_process_target,
-            args=(
-                stop_pipeline,
-                has_pipeline_started,
-                input_device_idx,
-                output_device_idx,
-                callback_latency_ms,
-                target_speaker,
-            ),
-        )
-        convert_process.start()      
+        inference_rt_thread = InferenceRt(inputDevice[0].index, outputDevice[0].index, latency, sample_rate, MAX_INFER_SAMPLES_VC, voice_conversion, start_queue, stop_queue, args=())
+        inference_rt_thread.start()
 
-        while not has_pipeline_started.value:
-            time.sleep(0.2)
+        # Wait for start queue
+        txt = inference_rt_thread.start_queue.get()
             
-        return [gr.update(interactive=False), gr.update(interactive=True), "Started! Get to talking!"]
+        return [gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=True), txt]
         
     def stopGenerateVoice():
-        global convert_process, stop_pipeline
-        
-        with stop_pipeline.get_lock():
-            stop_pipeline.value = 1
+        global inference_rt_thread
 
-        convert_process.join(5)
-        if convert_process.is_alive():
-            convert_process.terminate()
+        if inference_rt_thread is not None and inference_rt_thread.is_alive():
+            # Wait for end.        
+            inference_rt_thread.stop_queue.put("stop")
+            inference_rt_thread.join()
         
-        return [gr.update(interactive=True), gr.update(interactive=False), "Stopped!"]    
+        return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), "Stopped!"]    
 
     with gr.Blocks() as demo:
         gr.Markdown("Select an input and output devices, then press Start.")
         with gr.Row():
             inputDrop = gr.Dropdown(choices=inputNames, label="Input Device");
             outputDrop = gr.Dropdown(choices=outputNames, label="Output Device");
-        with gr.Row():
-            voiceDrop = gr.Dropdown(choices=voices, label="Voice File");
             latencySlider = gr.Slider(100, 2000, label="Latency (one way)", step=50, value=300);
         with gr.Row():
-            startButton = gr.Button("Start")
-            stopButton = gr.Button(value="Stop", interactive=False)
+            voiceDrop = gr.Dropdown(choices=voices, value="yara", label="Voice File");
+            voiceSetButton = gr.Button("Select Voice - Currently: yara");
+            startButton = gr.Button(value="Start", interactive=True);
+            stopButton = gr.Button(value="Stop", interactive=False);
         with gr.Row():
-            text = gr.Textbox(label="Status")
+            text = gr.Textbox(label="Status");
             
-        startButton.click(fn=generateVoice, inputs=[inputDrop, outputDrop, voiceDrop, latencySlider], outputs=[startButton, stopButton, text])
-        stopButton.click(fn=stopGenerateVoice, inputs=None, outputs=[startButton, stopButton, text])
+        voiceSetButton.click(fn=setVoice, inputs=[voiceDrop], outputs=[voiceSetButton, startButton, text])
+        startButton.click(fn=startGenerateVoice, inputs=[inputDrop, outputDrop, latencySlider], outputs=[voiceSetButton, startButton, stopButton, text])
+        stopButton.click(fn=stopGenerateVoice, inputs=None, outputs=[voiceSetButton, startButton, stopButton, text])
 
     demo.launch()
