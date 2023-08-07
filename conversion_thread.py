@@ -1,7 +1,7 @@
 import threading
 import queue
 
-from voice_conversion import StudioModelConversionPipeline, ConversionPipeline
+from voice_conversion import ConversionPipeline
 
 class Conversion(threading.Thread):
     def __init__(self,
