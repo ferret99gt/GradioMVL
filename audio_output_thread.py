@@ -1,7 +1,6 @@
 import threading
 import queue
 
-import numpy as np
 import pyaudio
 
 class audio_output(threading.Thread):
@@ -10,7 +9,6 @@ class audio_output(threading.Thread):
         q_out: queue.Queue,
         sample_rate: int,
         output_device_idx: int,
-        MAX_INFER_SAMPLES_VC: int,
         HDW_FRAMES_PER_BUFFER: int,
         stop_queue: queue.Queue,
         args=(),
@@ -22,7 +20,6 @@ class audio_output(threading.Thread):
         self.q_out = q_out
         self.sample_rate = sample_rate
         self.output_device_idx = output_device_idx
-        self.MAX_INFER_SAMPLES_VC = MAX_INFER_SAMPLES_VC
         self.HDW_FRAMES_PER_BUFFER = HDW_FRAMES_PER_BUFFER
         self.stop_queue = stop_queue
         
