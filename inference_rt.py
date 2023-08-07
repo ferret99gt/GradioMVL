@@ -53,18 +53,16 @@ class InferenceRt(threading.Thread):
         print(f"MAX_INFER_SAMPLES_VC: {MAX_INFER_SAMPLES_VC}")
     
         HDW_FRAMES_PER_BUFFER = math.ceil(sample_rate * callback_latency_ms / 1000)
-        NUM_CHUNKS = math.ceil(MAX_INFER_SAMPLES_VC / HDW_FRAMES_PER_BUFFER)
         print(f"HDW_FRAMES_PER_BUFFER: {HDW_FRAMES_PER_BUFFER}")
-        print(f"NUM_CHUNKS: {NUM_CHUNKS}")
 
         # init
         q_in, q_out = queue.Queue(), queue.Queue()
 
         # run pipeline
         try:
-            audio_input_thread = audio_input(self.__p, q_in, sample_rate, input_device_idx, NUM_CHUNKS, MAX_INFER_SAMPLES_VC, HDW_FRAMES_PER_BUFFER, queue.Queue())
+            audio_input_thread = audio_input(self.__p, q_in, sample_rate, input_device_idx, MAX_INFER_SAMPLES_VC, HDW_FRAMES_PER_BUFFER, queue.Queue())
             conversion_thread = Conversion(q_in, q_out, voice_conversion, HDW_FRAMES_PER_BUFFER, queue.Queue(), args=())
-            audio_output_thread = audio_output(self.__p, q_out, sample_rate, output_device_idx, MAX_INFER_SAMPLES_VC, HDW_FRAMES_PER_BUFFER, queue.Queue())
+            audio_output_thread = audio_output(self.__p, q_out, sample_rate, output_device_idx, HDW_FRAMES_PER_BUFFER, queue.Queue())
             
             audio_input_thread.start()
             conversion_thread.start()      
