@@ -4,7 +4,7 @@ import queue
 
 import pyaudio
 
-from voice_conversion import StudioModelConversionPipeline, ConversionPipeline
+from voice_conversion import ConversionPipeline
 from conversion_thread import Conversion
 from audio_input_thread import audio_input
 from audio_output_thread import audio_output

@@ -3,12 +3,8 @@ import math
 import numpy as np
 import os
 import queue
-import threading
-import time
 
 from inference_rt import InferenceRt
-from typing import Optional
-from modules.data_types import DeviceMap
 from modules.portaudio_utils import get_devices
 from modules.torch_utils import set_seed
 from voice_conversion import ConversionPipeline
