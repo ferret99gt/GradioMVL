@@ -105,17 +105,4 @@ class InferenceRt(threading.Thread):
             # Goodbye, PyAudio.
             self.__p.terminate()
 
-            # empty out the queues prior to deletion
-            while not q_in.empty():
-                try:
-                    q_in.get_nowait()
-                except Empty:
-                    pass
-            while not q_out.empty():
-                try:
-                    q_out.get_nowait()
-                except Empty:
-                    pass
-
-            del q_in, q_out, start_queue, status_queue
             print("Done cleaning, exiting.")
