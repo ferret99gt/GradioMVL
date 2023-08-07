@@ -13,7 +13,7 @@ class InferenceRt(threading.Thread):
     def __init__(self,
         input_device_idx: int,
         output_device_idx: int,
-        callback_latency_ms: int,
+        input_latency: int,
         sample_rate: int,
         MAX_INFER_SAMPLES_VC: int,
         voice_conversion: ConversionPipeline,
@@ -28,7 +28,7 @@ class InferenceRt(threading.Thread):
         
         self.input_device_idx = input_device_idx
         self.output_device_idx = output_device_idx
-        self.callback_latency_ms = callback_latency_ms
+        self.input_latency = input_latency
         self.sample_rate = sample_rate
         self.MAX_INFER_SAMPLES_VC = MAX_INFER_SAMPLES_VC
         self.voice_conversion = voice_conversion
@@ -39,7 +39,7 @@ class InferenceRt(threading.Thread):
         # being lazy, sue me.
         input_device_idx = self.input_device_idx
         output_device_idx = self.output_device_idx
-        callback_latency_ms = self.callback_latency_ms
+        input_latency = self.input_latency
         sample_rate = self.sample_rate
         MAX_INFER_SAMPLES_VC = self.MAX_INFER_SAMPLES_VC
         voice_conversion = self.voice_conversion
@@ -48,11 +48,11 @@ class InferenceRt(threading.Thread):
         
         print(f"input_device_idx: {input_device_idx}")
         print(f"output_device_idx: {output_device_idx}")
-        print(f"callback_latency_ms: {callback_latency_ms}")
+        print(f"input_latency: {input_latency}")
         print(f"sample_rate: {sample_rate}")
         print(f"MAX_INFER_SAMPLES_VC: {MAX_INFER_SAMPLES_VC}")
     
-        HDW_FRAMES_PER_BUFFER = math.ceil(sample_rate * callback_latency_ms / 1000)
+        HDW_FRAMES_PER_BUFFER = math.ceil(sample_rate * input_latency / 1000)
         print(f"HDW_FRAMES_PER_BUFFER: {HDW_FRAMES_PER_BUFFER}")
 
         # init
