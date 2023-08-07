@@ -53,17 +53,17 @@ class audio_input(threading.Thread):
         try:
             while self.stop_queue.empty():
                 try:
-                    # This is blocking until enough frames are received.
-                    wav_bytes = io_stream.read()
+                    # This is blocking until enough frames are received. We're silently ignoring overflows.
+                    wav_bytes = io_stream.read(self.HDW_FRAMES_PER_BUFFER, False)
                  
                     # Look into why we're pushing through NumPy. To convert to Float32? To allow for the following splice?
                     in_data_np = np.frombuffer(wav_bytes, dtype=np.float32)
 
                     # Data is a rolling queue of chunks, totalling about 1.48s of audio. This is to give the model more to work with in terms of infering tone, inflection, etc.
-                    data.append(in_data_np)
+                    self.data.append(in_data_np)
                     
                     # Push into queue for the model.
-                    self.q_in.put_nowait(np.array(data).flatten().astype(np.float32)[-MAX_INFER_SAMPLES_VC:].tobytes())
+                    self.q_in.put_nowait(np.array(self.data).flatten().astype(np.float32)[-self.MAX_INFER_SAMPLES_VC:].tobytes())
                 except queue.Empty:
                     pass
         except KeyboardInterrupt:

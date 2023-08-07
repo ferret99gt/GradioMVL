@@ -30,7 +30,7 @@ class Conversion(threading.Thread):
             while self.stop_queue.empty():
                 try:
                     # Wait on PyAudio input. We have a timeout so if the model never gives us anything, we'll break the block and loop around to check stop_queue
-                    wav_bytes = self.q_in.get(timeout=1)
+                    wav_bytes = self.q_in.get(timeout=5)
 
                     wav = np.frombuffer(wav_bytes, dtype=np.float32)
                     out = self.voice_conversion.run(wav, self.HDW_FRAMES_PER_BUFFER)

@@ -44,12 +44,12 @@ class audio_output(threading.Thread):
             while self.stop_queue.empty():
                 try:
                     # Block on model output. We have a timeout so if the model never gives us anything, we'll break the block and loop around to check stop_queue
-                    out_data = self.q_out.get(timeout=1)
+                    out_data = self.q_out.get(timeout=5)
                     if not self.q_out.empty():
                         print("queue is overflowing")
                     
                     # Write to PyAudio output. This blocks till completed. Then we'll loop and wait on the queue for more.
-                    stream.write(out_data)
+                    io_stream.write(out_data)
                 except queue.Empty:
                     pass
         except KeyboardInterrupt:

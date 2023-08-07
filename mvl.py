@@ -111,11 +111,11 @@ def start():
     outputNames = [p.name for p in devices['outputs']];
 
     with gr.Blocks() as demo:
-        gr.Markdown("Select an input and output devices, then press Start.")
+        gr.Markdown("Select an input device, output device, adjust your input latency, and select a voice. Then press Start.  \nInput latency is how frequently audio will be gathered to send to the model. 400ms is the default. Below 200ms may produce a lot of stuttering.  \nOutput latency is determined by your GPU's performance. As soon as the model produces audio, it will be output to you.  \nTotal round trip will be the input latency + how long your GPU needs to convert audio.  \nThe Stop button may take up to 5 seconds to complete.")
         with gr.Row():
             inputDrop = gr.Dropdown(choices=inputNames, label="Input Device");
             outputDrop = gr.Dropdown(choices=outputNames, label="Output Device");
-            latencySlider = gr.Slider(50, 2000, label="Latency (one way, round trip is double)", step=50, value=400);
+            latencySlider = gr.Slider(50, 2000, label="Input latency (milliseconds)", step=50, value=400);
         with gr.Row():
             voiceDrop = gr.Dropdown(choices=voices, value="yara", label="Voice File");
             startButton = gr.Button(value="Start", interactive=True);
