@@ -6,12 +6,13 @@ import pyaudio
 
 from collections import deque
 
-class audio_input_thread(threading.Thread):
+class audio_input(threading.Thread):
     def __init__(self,
         __p: pyaudio,
         q_in: queue.Queue,
         sample_rate: int,
         input_device_idx: int,
+        NUM_CHUNKS: int,
         MAX_INFER_SAMPLES_VC: int,
         HDW_FRAMES_PER_BUFFER: int,
         stop_queue: queue.Queue,
@@ -24,6 +25,7 @@ class audio_input_thread(threading.Thread):
         self.q_in = q_in
         self.sample_rate = sample_rate
         self.input_device_idx = input_device_idx
+        self.NUM_CHUNKS = NUM_CHUNKS
         self.MAX_INFER_SAMPLES_VC = MAX_INFER_SAMPLES_VC
         self.HDW_FRAMES_PER_BUFFER = HDW_FRAMES_PER_BUFFER
         self.stop_queue = stop_queue

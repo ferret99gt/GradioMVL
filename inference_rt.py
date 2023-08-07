@@ -6,8 +6,8 @@ import pyaudio
 
 from voice_conversion import StudioModelConversionPipeline, ConversionPipeline
 from conversion_thread import Conversion
-from audio_input_thread import audio_input_thread
-from audio_output_thread import audio_output_thread
+from audio_input_thread import audio_input
+from audio_output_thread import audio_output
 
 class InferenceRt(threading.Thread):
     def __init__(self,
@@ -62,9 +62,9 @@ class InferenceRt(threading.Thread):
 
         # run pipeline
         try:
-            audio_input_thread = audio_input_thread(self.__p, q_in, sample_rate, input_device_idx, MAX_INFER_SAMPLES_VC, HDW_FRAMES_PER_BUFFER, queue.Queue())
+            audio_input_thread = audio_input(self.__p, q_in, sample_rate, input_device_idx, NUM_CHUNKS, MAX_INFER_SAMPLES_VC, HDW_FRAMES_PER_BUFFER, queue.Queue())
             conversion_thread = Conversion(q_in, q_out, voice_conversion, HDW_FRAMES_PER_BUFFER, queue.Queue(), args=())
-            audio_output_thread = audio_output_thread(self.__p, q_out, sample_rate, output_device_idx, MAX_INFER_SAMPLES_VC, HDW_FRAMES_PER_BUFFER, queue.Queue())
+            audio_output_thread = audio_output(self.__p, q_out, sample_rate, output_device_idx, MAX_INFER_SAMPLES_VC, HDW_FRAMES_PER_BUFFER, queue.Queue())
             
             audio_input_thread.start()
             conversion_thread.start()      

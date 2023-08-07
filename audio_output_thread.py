@@ -4,7 +4,7 @@ import queue
 import numpy as np
 import pyaudio
 
-class audio_output_thread(threading.Thread):
+class audio_output(threading.Thread):
     def __init__(self,
         __p: pyaudio,
         q_out: queue.Queue,
@@ -25,12 +25,6 @@ class audio_output_thread(threading.Thread):
         self.MAX_INFER_SAMPLES_VC = MAX_INFER_SAMPLES_VC
         self.HDW_FRAMES_PER_BUFFER = HDW_FRAMES_PER_BUFFER
         self.stop_queue = stop_queue
-        
-        # create rolling deque for io_stream data packets
-        self.data = deque(maxlen=NUM_CHUNKS)
-        for _ in range(NUM_CHUNKS):
-            in_data = np.zeros(HDW_FRAMES_PER_BUFFER, dtype=np.float32)
-            self.data.append(in_data)        
         
     def run(self):
         # Get PyAudio input stream
