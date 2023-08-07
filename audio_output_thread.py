@@ -6,7 +6,7 @@ import pyaudio
 
 class audio_output_thread(threading.Thread):
     def __init__(self,
-        __p: PyAudio,
+        __p: pyaudio,
         q_out: queue.Queue,
         sample_rate: int,
         output_device_idx: int,
