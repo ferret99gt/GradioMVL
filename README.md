@@ -3,8 +3,10 @@ This is a reworking of MetaVoiceLive to completely strip out the Electron layer 
 
 ## Changelog
 
- - Initial release on 2023-08-05
- - Automatic install of dependencies on 2023-08-06
+ - 2023-08-05: Initial release
+ - 2023-08-06: Automatic install of dependencies
+ - 2023-08-07: Implement split audio input/output to improve latency. Add hot-swappable voice function. Add real voice passthrough/pause function. Minor performance cleanups.
+ 
 
 ## Setup
 

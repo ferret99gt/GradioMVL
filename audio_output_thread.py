@@ -53,5 +53,5 @@ class audio_output(threading.Thread):
             pass
         finally:
             io_stream.close()        
-            print("audio_input_thread: stopped")
+            print("audio_output_thread: stopped")
             

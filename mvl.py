@@ -18,8 +18,8 @@ num_samples = 128  # input spect shape num_mels * num_samples
 hop_length = 256  # int(0.0125 * sample_rate)  # 12.5ms - in line with Tacotron 2 paper
 hop_length = int(0.0125 * sample_rate)  # Let's actually try that math, in line with Tacotron 2 paper!
 
-# corresponds to 1.486s of audio, or 32768 samples in the time domain. This is the number of samples
-# fed into the VC module
+# MVL: corresponds to 1.486s of audio, or 32768 samples in the time domain. This is the number of samples fed into the VC module
+# Us: With our tweaked hop_length above, this is 35280 samples, about 1.6s of audio. This may improve the model's tone/pitch/timbre/intonation? Just a little more audio to work from.
 MAX_INFER_SAMPLES_VC = num_samples * hop_length
 
 SEED = 1234  # numpy & torch PRNG seed
@@ -32,8 +32,8 @@ inference_rt_thread = None
 voice_conversion = None
 devices = get_devices();
 
-def setVoice(target_speaker):
-    global voice_conversion, voiceDirectory
+def setVoice(target_speaker, pauseLabel):
+    global inference_rt_thread, voice_conversion, voiceDirectory
 
     if target_speaker is None or len(target_speaker) == 0:
         return [gr.update(interactive=False), "Invalid Voice selected, please pick another."]
@@ -43,22 +43,28 @@ def setVoice(target_speaker):
         return [gr.update(interactive=False), "Selected Voice not found, please pick another."]
         
     voice_conversion.set_target(target_speaker)
-        
-    return [gr.update(interactive=True), "Voice prepared! You can start now!"]
+    
+    if inference_rt_thread is not None and inference_rt_thread.is_alive():
+        if pauseLabel == "Pause":
+            return [gr.update(interactive=False), "Voice switched! Keep talking!"]
+        else:
+            return [gr.update(interactive=False), "Voice switched! Remember you are paused, your real voice is going through!"]
+    else:
+        return [gr.update(interactive=True), "Voice set! You can start now!"]        
 
 def startGenerateVoice(input, output, latency):
     global inference_rt_thread, voice_conversion, devices, sample_rate, MAX_INFER_SAMPLES_VC
         
     inputDevice =  [p for p in devices['inputs'] if p.name == input];
     if inputDevice is None or len(inputDevice) != 1:
-        return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), "Invalid input device selected, conversion not started."]
+        return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), gr.update(interactive=False), "Invalid input device selected, conversion not started."]
         
     outputDevice =  [p for p in devices['outputs'] if p.name == output];
     if outputDevice is None or len(outputDevice) != 1:
-        return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), "Invalid input device selected, conversion not started."]
+        return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), gr.update(interactive=False), "Invalid input device selected, conversion not started."]
         
     if not voice_conversion.isTargetSet:
-        return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), "A voice is not selected yet, conversion not started."]
+        return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), gr.update(interactive=False), "A voice is not selected yet, conversion not started."]
 
     inference_rt_thread = InferenceRt(inputDevice[0].index, outputDevice[0].index, latency, sample_rate, MAX_INFER_SAMPLES_VC, voice_conversion, queue.Queue(), queue.Queue(), args=())
     inference_rt_thread.start()
@@ -66,17 +72,31 @@ def startGenerateVoice(input, output, latency):
     # Wait for start queue
     txt = inference_rt_thread.start_queue.get()
         
-    return [gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=True), txt]
+    return [gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=True), gr.update(interactive=True), txt]
+    
+def pauseGenerateVoice(pauseLabel):
+    global inference_rt_thread
+        
+    label = "Unpause"
+    text = "AI paused! Real voice is going through!"
+    if pauseLabel != "Pause":
+        label = "Pause"
+        text = "AI unpaused! Keep talking!"
+        
+    if inference_rt_thread is not None and inference_rt_thread.is_alive():
+        inference_rt_thread.status_queue.put("pauseToggle")        
+    
+    return label, text
     
 def stopGenerateVoice():
     global inference_rt_thread
     
     if inference_rt_thread is not None and inference_rt_thread.is_alive():
         # Wait for end.        
-        inference_rt_thread.stop_queue.put("stop")
+        inference_rt_thread.status_queue.put("stop")
         inference_rt_thread.join()
     
-    return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), "Stopped!"]
+    return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(value="Pause", interactive=False), gr.update(interactive=False), "Stopped!"]
 
 def start():
     global inference_rt_thread, voice_conversion, devices, sample_rate, MAX_INFER_SAMPLES_VC, voiceDirectory
@@ -107,7 +127,7 @@ def start():
     outputNames = [p.name for p in devices['outputs']];
 
     with gr.Blocks() as demo:
-        gr.Markdown("Select an input device, output device, adjust your input latency, and select a voice. Then press Start.  \nInput latency is how frequently audio will be gathered to send to the model. 400ms is the default. Below 200ms may produce a lot of stuttering.  \nOutput latency is determined by your GPU's performance. As soon as the model produces audio, it will be output to you.  \nTotal round trip will be the input latency + how long your GPU needs to convert audio.  \nThe Stop button may take up to 5 seconds to complete.")
+        gr.Markdown("Select an input device, output device, adjust your input latency, and select a voice. Then press Start.  \nInput latency is how frequently audio will be gathered to send to the model. 400ms is the default. Below 200ms may produce a lot of stuttering.  \nOutput latency is determined by your GPU's performance. As soon as the model produces audio, it will be output to you.  \nTotal round trip will be the input latency + how long your GPU needs to convert audio.  \n  \nThe Voice drop down can be changed at any time without stopping!  \nThe Pause button will allow your normal voice through!  \nThe Stop button will stop audio entirely, and may take up to 5 seconds to complete.")
         with gr.Row():
             inputDrop = gr.Dropdown(choices=inputNames, label="Input Device");
             outputDrop = gr.Dropdown(choices=outputNames, label="Output Device");
@@ -115,13 +135,15 @@ def start():
         with gr.Row():
             voiceDrop = gr.Dropdown(choices=voices, value="yara", label="Voice File");
             startButton = gr.Button(value="Start", interactive=True);
+            pauseButton = gr.Button(value="Pause", interactive=False);
             stopButton = gr.Button(value="Stop", interactive=False);
         with gr.Row():
             text = gr.Textbox(label="Status");
             
-        voiceDrop.input(fn=setVoice, inputs=[voiceDrop], outputs=[startButton, text])
-        startButton.click(fn=startGenerateVoice, inputs=[inputDrop, outputDrop, latencySlider], outputs=[voiceDrop, startButton, stopButton, text])
-        stopButton.click(fn=stopGenerateVoice, inputs=None, outputs=[voiceDrop, startButton, stopButton, text])
+        voiceDrop.input(fn=setVoice, inputs=[voiceDrop, pauseButton], outputs=[startButton, text])
+        startButton.click(fn=startGenerateVoice, inputs=[inputDrop, outputDrop, latencySlider], outputs=[inputDrop, outputDrop, latencySlider, startButton, pauseButton, stopButton, text])
+        pauseButton.click(fn=pauseGenerateVoice, inputs=pauseButton, outputs=[pauseButton, text])
+        stopButton.click(fn=stopGenerateVoice, inputs=None, outputs=[inputDrop, outputDrop, latencySlider, startButton, pauseButton, stopButton, text])
 
     demo.launch()
     

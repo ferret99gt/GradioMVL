@@ -1,5 +1,6 @@
 import abc
 import os
+import threading
 
 from abc import abstractmethod
 
@@ -9,6 +10,7 @@ import torch
 from modules.torch_utils import get_device, is_mps_available
 
 STUDIO_MODELS_ROOT = "studio_models"
+lock = threading.Lock()
 
 # Base class for Pipeline
 class StudioModelConversionPipeline(abc.ABC):
@@ -43,8 +45,9 @@ class StudioModelConversionPipeline(abc.ABC):
         if not os.path.exists(path):
             raise FileNotFoundError(f"Target speaker {speaker_id} not found in {path_studio}.")
 
-        self.target = np.load(path)
-        self.target = torch.from_numpy(self.target).unsqueeze(0).to(self.device)
+        with lock:
+            self.target = np.load(path)
+            self.target = torch.from_numpy(self.target).unsqueeze(0).to(self.device)
         
         self.targetSet = True
 
@@ -61,7 +64,8 @@ class StudioModelConversionPipeline(abc.ABC):
                 c = self.pmodel.predict({"input_values": wav_src[np.newaxis, :]})["var_3641"]
                 c = torch.from_numpy(c).to(self.device)
 
-            audio = self.model(c, self.target)
+            with lock:
+                audio = self.model(c, self.target)
             audio = audio[0][0].data.cpu().float().numpy()
             
             # Replace MetaVoice's soundfile write / librosa load for sample rate change with Librosa in-memory conversion.
