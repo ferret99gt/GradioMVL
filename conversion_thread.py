@@ -9,7 +9,7 @@ class Conversion(threading.Thread):
         q_out: queue.Queue,
         voice_conversion: ConversionPipeline,
         HDW_FRAMES_PER_BUFFER: int,
-        stop_queue: queue.Queue,
+        status_queue: queue.Queue,
         args=(),
         kwargs=None,
     ):
@@ -19,20 +19,37 @@ class Conversion(threading.Thread):
         self.q_out = q_out
         self.voice_conversion = voice_conversion
         self.HDW_FRAMES_PER_BUFFER = HDW_FRAMES_PER_BUFFER
-        self.stop_queue = stop_queue
+        self.status_queue = status_queue
+        self.paused = False
         
     def run(self):
         try:
-            while self.stop_queue.empty():
+            while True:
                 try:
                     # Wait on PyAudio input. We have a timeout so if the model never gives us anything, we'll break the block and loop around to check stop_queue
                     wav = self.q_in.get(timeout=5)
 
                     # Infer!
-                    out = self.voice_conversion.run(wav, self.HDW_FRAMES_PER_BUFFER)
+                    if not self.paused:
+                        out = self.voice_conversion.run(wav, self.HDW_FRAMES_PER_BUFFER)
+                    else:
+                        out = wav[-self.HDW_FRAMES_PER_BUFFER:]
 
                     # Queue it up for the audio output thread.
                     self.q_out.put_nowait(out.tobytes())
+                except queue.Empty:
+                    pass
+                
+                try:
+                    # Check the status queue for instructions.
+                    status = self.status_queue.get_nowait()
+                    
+                    # Pause? Stop?
+                    if status == "pauseToggle":
+                        self.paused = not self.paused
+                    else:
+                        break
+                        
                 except queue.Empty:
                     pass
         except KeyboardInterrupt:

@@ -18,7 +18,7 @@ class InferenceRt(threading.Thread):
         MAX_INFER_SAMPLES_VC: int,
         voice_conversion: ConversionPipeline,
         start_queue: queue.Queue,
-        stop_queue: queue.Queue,
+        status_queue: queue.Queue,
         args=(),
         kwargs=None,
     ):
@@ -33,7 +33,7 @@ class InferenceRt(threading.Thread):
         self.MAX_INFER_SAMPLES_VC = MAX_INFER_SAMPLES_VC
         self.voice_conversion = voice_conversion
         self.start_queue = start_queue
-        self.stop_queue = stop_queue
+        self.status_queue = status_queue
 
     def run(self):
         # being lazy, sue me.
@@ -44,7 +44,7 @@ class InferenceRt(threading.Thread):
         MAX_INFER_SAMPLES_VC = self.MAX_INFER_SAMPLES_VC
         voice_conversion = self.voice_conversion
         start_queue = self.start_queue
-        stop_queue = self.stop_queue
+        status_queue = self.status_queue
         
         print(f"input_device_idx: {input_device_idx}")
         print(f"output_device_idx: {output_device_idx}")
@@ -71,7 +71,13 @@ class InferenceRt(threading.Thread):
             # We're started. Let parent thread know, and wait for stop.
             start_queue.put_nowait("Started! Get to talking!")
 
-            stop_queue.get()
+            while True:
+                status = status_queue.get()
+                
+                if status == "pauseToggle":
+                    conversion_thread.status_queue.put_nowait(status)
+                else:
+                    break
         except Exception as inst:
             print(type(inst))    # the exception type
             print(inst.args)     # arguments stored in .args
@@ -89,7 +95,7 @@ class InferenceRt(threading.Thread):
             audio_input_thread.join()
 
             # Wait for conversion to stop.
-            conversion_thread.stop_queue.put_nowait("stop")
+            conversion_thread.status_queue.put_nowait("stop")
             conversion_thread.join()
             
             # Wait for output to stop.
@@ -111,5 +117,5 @@ class InferenceRt(threading.Thread):
                 except Empty:
                     pass
 
-            del q_in, q_out, start_queue, stop_queue
+            del q_in, q_out, start_queue, status_queue
             print("Done cleaning, exiting.")
