@@ -1,7 +1,5 @@
 torch
-torchvision
 torchaudio
 gradio
-sounddevice
 pyaudio
 librosa

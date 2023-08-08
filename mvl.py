@@ -3,14 +3,15 @@ import math
 import numpy as np
 import os
 import queue
+import random
+import torch 
+import pyaudio
 
 from inference_rt import InferenceRt
-from modules.portaudio_utils import get_devices
-from modules.torch_utils import set_seed
 from voice_conversion import ConversionPipeline
 
-# venv\Scripts\pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-# venv\Scripts\pip install gradio sounddevice pyaudio librosa
+# venv\Scripts\pip3 install torch torchaudio --index-url https://download.pytorch.org/whl/cu118
+# venv\Scripts\pip install gradio pyaudio librosa
 
 # Samples, rates, etc.
 sample_rate = 22050 # sampling rate yeah!
@@ -22,15 +23,41 @@ hop_length = int(0.0125 * sample_rate)  # Let's actually try that math, in line 
 # Us: With our tweaked hop_length above, this is 35280 samples, about 1.6s of audio. This may improve the model's tone/pitch/timbre/intonation? Just a little more audio to work from.
 MAX_INFER_SAMPLES_VC = num_samples * hop_length
 
+# Hardcode the seed.
 SEED = 1234  # numpy & torch PRNG seed
-set_seed(SEED)
+np.random.seed(SEED)
+random.seed(SEED)
+torch.manual_seed(SEED)
 
+# Where are the voice targets?
 voiceDirectory = "studio_models\\targets"
 
 # Hold the thread, model and devices.
 inference_rt_thread = None
 voice_conversion = None
-devices = get_devices();
+
+# Collect audio devices from hostApi 0
+# MVL used only hostApi 0 and it seems fine, but should look into this again later.
+inputs = []
+outputs = []
+
+p = pyaudio.PyAudio()
+
+for i in range(p.get_device_count()):
+    device = p.get_device_info_by_index(i)
+    #print(device)
+    
+    if device["hostApi"] == 0:
+        if device["maxInputChannels"]:
+            inputs.append(device)
+        if device["maxOutputChannels"]:
+            outputs.append(device)
+
+p.terminate()
+
+devices = dict()
+devices["inputs"] = inputs
+devices["outputs"] = outputs
 
 def setVoice(target_speaker, pauseLabel):
     global inference_rt_thread, voice_conversion, voiceDirectory
@@ -55,18 +82,18 @@ def setVoice(target_speaker, pauseLabel):
 def startGenerateVoice(input, output, latency):
     global inference_rt_thread, voice_conversion, devices, sample_rate, MAX_INFER_SAMPLES_VC
         
-    inputDevice =  [p for p in devices['inputs'] if p.name == input];
+    inputDevice =  [p for p in devices['inputs'] if p["name"] == input];
     if inputDevice is None or len(inputDevice) != 1:
         return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), gr.update(interactive=False), "Invalid input device selected, conversion not started."]
         
-    outputDevice =  [p for p in devices['outputs'] if p.name == output];
+    outputDevice =  [p for p in devices['outputs'] if p["name"] == output];
     if outputDevice is None or len(outputDevice) != 1:
         return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), gr.update(interactive=False), "Invalid input device selected, conversion not started."]
         
     if not voice_conversion.isTargetSet:
         return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), gr.update(interactive=False), "A voice is not selected yet, conversion not started."]
 
-    inference_rt_thread = InferenceRt(inputDevice[0].index, outputDevice[0].index, latency, sample_rate, MAX_INFER_SAMPLES_VC, voice_conversion, queue.Queue(), queue.Queue(), args=())
+    inference_rt_thread = InferenceRt(inputDevice[0]["index"], outputDevice[0]["index"], latency, sample_rate, MAX_INFER_SAMPLES_VC, voice_conversion, queue.Queue(), queue.Queue(), args=())
     inference_rt_thread.start()
 
     # Wait for start queue
@@ -123,8 +150,8 @@ def start():
             voices.append(filename[0:-4])
 
     # Retrieve available devices.
-    inputNames = [p.name for p in devices['inputs']];
-    outputNames = [p.name for p in devices['outputs']];
+    inputNames = [p["name"] for p in devices['inputs']];
+    outputNames = [p["name"] for p in devices['outputs']];
 
     with gr.Blocks() as demo:
         gr.Markdown("Select an input device, output device, adjust your input latency, and select a voice. Then press Start.  \nInput latency is how frequently audio will be gathered to send to the model. 400ms is the default. Below 200ms may produce a lot of stuttering.  \nOutput latency is determined by your GPU's performance. As soon as the model produces audio, it will be output to you.  \nTotal round trip will be the input latency + how long your GPU needs to convert audio.  \n  \nThe Voice drop down can be changed at any time without stopping!  \nThe Pause button will allow your normal voice through!  \nThe Stop button will stop audio entirely, and may take up to 5 seconds to complete.")

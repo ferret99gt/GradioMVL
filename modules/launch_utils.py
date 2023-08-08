@@ -133,7 +133,7 @@ def requirements_met(requirements_file):
 
 
 def prepare_environment():
-    torch_command = "pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118"
+    torch_command = "pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118"
     requirements_file = "requirements.txt"
 
     check_python_version()

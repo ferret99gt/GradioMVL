@@ -7,7 +7,6 @@ from abc import abstractmethod
 import librosa
 import numpy as np
 import torch
-from modules.torch_utils import get_device, is_mps_available
 
 STUDIO_MODELS_ROOT = "studio_models"
 lock = threading.Lock()
@@ -19,8 +18,11 @@ class StudioModelConversionPipeline(abc.ABC):
         self.pp_sampling_rate = 24000
         self.sampling_rate = 22050
 
-        self.device = get_device()
-        self.mac_silicon_device = is_mps_available()
+        self.device = torch.device('cpu')
+        if torch.cuda.is_available():
+            self.device = torch.device('cuda')
+            
+        self.mac_silicon_device = torch.backends.mps.is_available()
 
         # Load the model.
         self.model = torch.jit.load(os.path.join(STUDIO_MODELS_ROOT, "model.pt")).to(self.device)
