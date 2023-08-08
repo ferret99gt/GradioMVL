@@ -1,6 +1,13 @@
 # Gradio MetaVoiceLive
 This is a reworking of MetaVoiceLive to completely strip out the Electron layer and JavaScript reliance. It's a pure Python implementation. All unnecessary code removed.
 
+MVL is based in part on the following projects, or related projects/papers:
+ - https://github.com/ebadawy/voice_conversion/
+ - https://github.com/CorentiJ/Real-Time-Voice-Conversion/
+ - https://github.com/leimao/Voice-Converter-CycleGAN/ 
+
+I also borrowed the launch/setup code from: https://github.com/AUTOMATIC1111/stable-diffusion-webui/
+
 ## Changelog
 
  - 2023-08-05:
