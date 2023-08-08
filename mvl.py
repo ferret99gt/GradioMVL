@@ -14,14 +14,17 @@ from voice_conversion import ConversionPipeline
 # venv\Scripts\pip install gradio pyaudio librosa
 
 # Samples, rates, etc.
-sample_rate = 22050 # sampling rate yeah!
+input_sample_rate = 22050 # sampling rate yeah!
+output_sample_rate = 24000 # the sampling rate for output. Do not change, matches what the model outputs.
 num_samples = 128  # input spect shape num_mels * num_samples
-hop_length = 256  # int(0.0125 * sample_rate)  # 12.5ms - in line with Tacotron 2 paper
-hop_length = int(0.0125 * sample_rate)  # Let's actually try that math, in line with Tacotron 2 paper!
+hop_length = 256  # int(0.0125 * input_sample_rate)  # 12.5ms - in line with Tacotron 2 paper
+hop_length = int(0.0125 * input_sample_rate)  # Let's actually try that math, in line with Tacotron 2 paper!
 
 # MVL: corresponds to 1.486s of audio, or 32768 samples in the time domain. This is the number of samples fed into the VC module
 # Us: With our tweaked hop_length above, this is 35280 samples, about 1.6s of audio. This may improve the model's tone/pitch/timbre/intonation? Just a little more audio to work from.
 MAX_INFER_SAMPLES_VC = num_samples * hop_length
+max_input_latency = int(num_samples * 0.0125 * 1000 - 1) # Max latency in ms allowed by MAX_INFER_SAMPLES_VC. Minus 1, so we're below the limit.
+max_input_latency = max_input_latency - (max_input_latency%50) # Round down to nearly 50 for latency slider stepping.
 
 # Hardcode the seed.
 SEED = 1234  # numpy & torch PRNG seed
@@ -47,6 +50,7 @@ for i in range(p.get_device_count()):
     device = p.get_device_info_by_index(i)
     #print(device)
     
+    #defaultSampleRate
     if device["hostApi"] == 0:
         if device["maxInputChannels"]:
             inputs.append(device)
@@ -58,6 +62,11 @@ p.terminate()
 devices = dict()
 devices["inputs"] = inputs
 devices["outputs"] = outputs
+
+def setCrossfade(crossfade):
+    global voice_conversion
+    
+    voice_conversion.set_crossfade(crossfade)
 
 def setVoice(target_speaker, pauseLabel):
     global inference_rt_thread, voice_conversion, voiceDirectory
@@ -79,8 +88,8 @@ def setVoice(target_speaker, pauseLabel):
     else:
         return [gr.update(interactive=True), "Voice set! You can start now!"]        
 
-def startGenerateVoice(input, output, latency):
-    global inference_rt_thread, voice_conversion, devices, sample_rate, MAX_INFER_SAMPLES_VC
+def startGenerateVoice(input, output, latency, crossfade):
+    global inference_rt_thread, voice_conversion, devices, input_sample_rate, output_sample_rate, MAX_INFER_SAMPLES_VC
         
     inputDevice =  [p for p in devices['inputs'] if p["name"] == input];
     if inputDevice is None or len(inputDevice) != 1:
@@ -93,7 +102,9 @@ def startGenerateVoice(input, output, latency):
     if not voice_conversion.isTargetSet:
         return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), gr.update(interactive=False), "A voice is not selected yet, conversion not started."]
 
-    inference_rt_thread = InferenceRt(inputDevice[0]["index"], outputDevice[0]["index"], latency, sample_rate, MAX_INFER_SAMPLES_VC, voice_conversion, queue.Queue(), queue.Queue(), args=())
+    voice_conversion.set_crossfade(crossfade)
+
+    inference_rt_thread = InferenceRt(inputDevice[0]["index"], outputDevice[0]["index"], latency, input_sample_rate, output_sample_rate, MAX_INFER_SAMPLES_VC, voice_conversion, queue.Queue(), queue.Queue(), args=())
     inference_rt_thread.start()
 
     # Wait for start queue
@@ -126,16 +137,16 @@ def stopGenerateVoice():
     return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(value="Pause", interactive=False), gr.update(interactive=False), "Stopped!"]
 
 def start():
-    global inference_rt_thread, voice_conversion, devices, sample_rate, MAX_INFER_SAMPLES_VC, voiceDirectory
+    global inference_rt_thread, voice_conversion, devices, input_sample_rate, MAX_INFER_SAMPLES_VC, voiceDirectory, max_input_latency
 
     # Create the model.
     print("We're loading the model and warming it up, please standby! Approximately 30-50 seconds!")
-    voice_conversion = ConversionPipeline(sample_rate)
+    voice_conversion = ConversionPipeline(input_sample_rate)
     voice_conversion.set_target("yara")
     
     # warmup models into the cache
     warmup_iterations = 20
-    warmup_frames_per_buffer = math.ceil(sample_rate * 400 / 1000)
+    warmup_frames_per_buffer = math.ceil(input_sample_rate * 400 / 1000) # Warm up with 400ms mock latency
     for _ in range(warmup_iterations):
         wav = np.random.rand(MAX_INFER_SAMPLES_VC).astype(np.float32)
         voice_conversion.run(wav, warmup_frames_per_buffer)
@@ -154,11 +165,12 @@ def start():
     outputNames = [p["name"] for p in devices['outputs']];
 
     with gr.Blocks() as demo:
-        gr.Markdown("Select an input device, output device, adjust your input latency, and select a voice. Then press Start.  \nInput latency is how frequently audio will be gathered to send to the model. 400ms is the default. Below 200ms may produce a lot of stuttering.  \nOutput latency is determined by your GPU's performance. As soon as the model produces audio, it will be output to you.  \nTotal round trip will be the input latency + how long your GPU needs to convert audio.  \n  \nThe Voice drop down can be changed at any time without stopping!  \nThe Pause button will allow your normal voice through!  \nThe Stop button will stop audio entirely, and may take up to 5 seconds to complete.")
+        gr.Markdown("Select an input device, output device, adjust your input latency, and select a voice. Then press Start.  \nInput latency is how frequently audio will be gathered to send to the model. 400ms is the default. Below 200ms may produce a lot of stuttering.  \nOutput latency is determined by your GPU's performance. As soon as the model produces audio, it will be output to you.  \nTotal round trip will be the input latency + how long your GPU needs to convert audio.  \n  \nCrossfade can be enabled or disabled at any time. MVL uses crossfade. Disabling may introduce some \"popping\".  \nThe Voice drop down can be changed at any time without stopping!  \nThe Pause button will allow your normal voice through!  \nThe Stop button will stop audio entirely, and may take up to 5 seconds to complete.")
         with gr.Row():
             inputDrop = gr.Dropdown(choices=inputNames, label="Input Device");
             outputDrop = gr.Dropdown(choices=outputNames, label="Output Device");
-            latencySlider = gr.Slider(50, 2000, label="Input latency (milliseconds)", step=50, value=400);
+            latencySlider = gr.Slider(50, max_input_latency, label="Input latency (milliseconds)", step=50, value=300);
+            crossfade = gr.Checkbox(value=True, label="Crossfade");
         with gr.Row():
             voiceDrop = gr.Dropdown(choices=voices, value="yara", label="Voice File");
             startButton = gr.Button(value="Start", interactive=True);
@@ -167,8 +179,9 @@ def start():
         with gr.Row():
             text = gr.Textbox(label="Status");
             
+        crossfade.input(fn=setCrossfade, inputs=crossfade, outputs=None)
         voiceDrop.input(fn=setVoice, inputs=[voiceDrop, pauseButton], outputs=[startButton, text])
-        startButton.click(fn=startGenerateVoice, inputs=[inputDrop, outputDrop, latencySlider], outputs=[inputDrop, outputDrop, latencySlider, startButton, pauseButton, stopButton, text])
+        startButton.click(fn=startGenerateVoice, inputs=[inputDrop, outputDrop, latencySlider, crossfade], outputs=[inputDrop, outputDrop, latencySlider, startButton, pauseButton, stopButton, text])
         pauseButton.click(fn=pauseGenerateVoice, inputs=pauseButton, outputs=[pauseButton, text])
         stopButton.click(fn=stopGenerateVoice, inputs=None, outputs=[inputDrop, outputDrop, latencySlider, startButton, pauseButton, stopButton, text])
 

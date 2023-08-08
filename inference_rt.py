@@ -14,7 +14,8 @@ class InferenceRt(threading.Thread):
         input_device_idx: int,
         output_device_idx: int,
         input_latency: int,
-        sample_rate: int,
+        input_sample_rate: int,
+        output_sample_rate: int,
         MAX_INFER_SAMPLES_VC: int,
         voice_conversion: ConversionPipeline,
         start_queue: queue.Queue,
@@ -29,7 +30,8 @@ class InferenceRt(threading.Thread):
         self.input_device_idx = input_device_idx
         self.output_device_idx = output_device_idx
         self.input_latency = input_latency
-        self.sample_rate = sample_rate
+        self.input_sample_rate = input_sample_rate
+        self.output_sample_rate = output_sample_rate
         self.MAX_INFER_SAMPLES_VC = MAX_INFER_SAMPLES_VC
         self.voice_conversion = voice_conversion
         self.start_queue = start_queue
@@ -39,20 +41,24 @@ class InferenceRt(threading.Thread):
         print(f"input_device_idx: {self.input_device_idx}")
         print(f"output_device_idx: {self.output_device_idx}")
         print(f"input_latency: {self.input_latency}")
-        print(f"sample_rate: {self.sample_rate}")
+        print(f"input_sample_rate: {self.input_sample_rate}")
+        print(f"output_sample_rate: {self.output_sample_rate}")
         print(f"MAX_INFER_SAMPLES_VC: {self.MAX_INFER_SAMPLES_VC}")
     
-        HDW_FRAMES_PER_BUFFER = math.ceil(self.sample_rate * self.input_latency / 1000)
-        print(f"HDW_FRAMES_PER_BUFFER: {HDW_FRAMES_PER_BUFFER}")
+        HDW_FRAMES_PER_BUFFER_IN = math.ceil(self.input_sample_rate * self.input_latency / 1000)
+        HDW_FRAMES_PER_BUFFER_OUT = math.ceil(self.output_sample_rate * self.input_latency / 1000)
+        
+        print(f"HDW_FRAMES_PER_BUFFER_IN: {HDW_FRAMES_PER_BUFFER_IN}")
+        print(f"HDW_FRAMES_PER_BUFFER_OUT: {HDW_FRAMES_PER_BUFFER_OUT}")
 
         # init
         q_in, q_out = queue.Queue(), queue.Queue()
 
         # run pipeline
         try:
-            audio_input_thread = audio_input(self.__p, q_in, self.sample_rate, self.input_device_idx, self.MAX_INFER_SAMPLES_VC, HDW_FRAMES_PER_BUFFER, queue.Queue())
-            conversion_thread = Conversion(q_in, q_out, self.voice_conversion, HDW_FRAMES_PER_BUFFER, queue.Queue(), args=())
-            audio_output_thread = audio_output(self.__p, q_out, self.sample_rate, self.output_device_idx, HDW_FRAMES_PER_BUFFER, queue.Queue())
+            audio_input_thread = audio_input(self.__p, q_in, self.input_sample_rate, self.input_device_idx, self.MAX_INFER_SAMPLES_VC, HDW_FRAMES_PER_BUFFER_IN, queue.Queue())
+            conversion_thread = Conversion(q_in, q_out, self.voice_conversion, HDW_FRAMES_PER_BUFFER_OUT, queue.Queue(), args=())
+            audio_output_thread = audio_output(self.__p, q_out, self.output_sample_rate, self.output_device_idx, HDW_FRAMES_PER_BUFFER_OUT, queue.Queue())
             
             audio_input_thread.start()
             conversion_thread.start()      

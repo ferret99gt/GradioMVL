@@ -3,9 +3,23 @@ This is a reworking of MetaVoiceLive to completely strip out the Electron layer 
 
 ## Changelog
 
- - 2023-08-05: Initial release
- - 2023-08-06: Automatic install of dependencies
- - 2023-08-07: Implement split audio input/output to improve latency. Add hot-swappable voice function. Add real voice passthrough/pause function. Minor performance cleanups.
+ - 2023-08-05:
+   - Initial release
+ - 2023-08-06:
+   - Automatic install of dependencies
+ - 2023-08-07:
+   - Implement split audio input/output to improve latency. ~40% latency reduction.
+   - Add hot-swappable voice function.
+   - Add real voice passthrough/pause function.
+   - Remove torchvision dependency, not needed.
+   - Remove sounddevice dependency, not needed, as PyAudio can do the same thing.
+   - Minor performance cleanups.
+ - 2023-08-08:
+   - Match output sampling rate to model sampling rate. No more down sampling, slight performance saving, potentially slight quality improvement.
+   - Add ability to disable crossfade if desired. May introduce some "popping".
+   - Output model performance to console.
+   - Adjust default input latency to 300ms for now.
+   - Set max input latency based on size of input buffer to model. Can't be bigger!
 
 ## Setup
 
@@ -24,10 +38,12 @@ This is a reworking of MetaVoiceLive to completely strip out the Electron layer 
 
  - Pick your input and output devices.
  - Adjust the input latency slider according to your system hardware.
-   - Input latency is how frequently audio will be gathered to send to the model. 400ms is the default. Below 200ms may produce a lot of stuttering.
+   - Input latency is how frequently audio will be gathered to send to the model. 300ms is the default.
    - Output latency is determined by your GPU's performance. As soon as the model produces audio, it will be output to you.
-   - Total round trip will be the input latency + how long your GPU needs to convert audio.
-   - I have been able to test very low even on a 2070S. But I generally don't recommend lower than 300, and find 300-400 to be the sweet spot.
+   - Total round trip will be the input latency + how long your GPU needs to convert audio. The conversion timing is output to the console.
+   - Testing on a RTX 2070S shows an average model response time of 60-80ms, meaning a 300ms input latency will result in a 360-380ms total latency. There may be periodic spikes.
+   - Generally recommend that you set the input latency to be double your GPU's response time or more. This is to ensure the input never overruns the model's conversion.
+   - The lower the input latency, the more frequently the model is called, and the more GPU you'll use. You may need to increase input latency if you want to convert while gaming.
  - Pick your voice! yara is used as a default. The voice can be changed at any time, including while already converting.
  - Press Start and go!
  - Press Pause to pause the AI conversion and send your real voice.
@@ -37,6 +53,6 @@ This is a reworking of MetaVoiceLive to completely strip out the Electron layer 
 
 Do you know how to make your own npy target voices? If so, just drop them in "GradioMVL\studio_models\targets" and restart!
 
-### Todo
+## Todo
 
  - Need to add a launch.sh for Linux.

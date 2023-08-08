@@ -2,6 +2,8 @@ import abc
 import os
 import threading
 
+import time
+
 from abc import abstractmethod
 
 import librosa
@@ -13,10 +15,10 @@ lock = threading.Lock()
 
 # Base class for Pipeline
 class StudioModelConversionPipeline(abc.ABC):
-    def __init__(self, sample_rate: int):
+    def __init__(self, input_sample_rate: int):
         self.p_sampling_rate = 16000
-        self.pp_sampling_rate = 24000
-        self.sampling_rate = sample_rate # 22050 by default
+        #self.pp_sampling_rate = 24000
+        self.input_sample_rate = input_sample_rate # 22050 by default
 
         self.device = torch.device('cpu')
         if torch.cuda.is_available():
@@ -54,10 +56,15 @@ class StudioModelConversionPipeline(abc.ABC):
         self.targetSet = True
 
     def infer(self, wav: np.ndarray) -> np.ndarray:
+        time_start = time.time()
         # Audio comes from PyAudio at 22050Hz, which we resample to 16khz for the preprocessor. The inference returns 24khz, which we resample back to 22050Hz to return to PyAudio for output.
         with torch.no_grad():
             # Replace MetaVoice's soundfile write / librosa load for sample rate change with Librosa in-memory conversion.
-            wav_src = librosa.resample(wav, orig_sr=self.sampling_rate, target_sr=self.p_sampling_rate, res_type="soxr_hq")
+            # Increase resampling quality from soxr_hq to soxr_vhq
+            # Resampling on a AMD Ryzen 7 3700X tested at 1-2ms.
+            #time_start_res = time.time()
+            wav_src = librosa.resample(wav, orig_sr=self.input_sample_rate, target_sr=self.p_sampling_rate, res_type="soxr_vhq")
+            #print(f"Input down sample took: {time.time()-time_start_res}")
                         
             if not self.mac_silicon_device:
                 wav_src = torch.from_numpy(wav_src).unsqueeze(0).to(self.device)
@@ -71,8 +78,15 @@ class StudioModelConversionPipeline(abc.ABC):
             audio = audio[0][0].data.cpu().float().numpy()
             
             # Replace MetaVoice's soundfile write / librosa load for sample rate change with Librosa in-memory conversion.
-            out = librosa.resample(audio, orig_sr=self.pp_sampling_rate, target_sr=self.sampling_rate, res_type="soxr_hq")
+            # Increase resampling quality from soxr_hq to soxr_vhq
+            # Resampling on a AMD Ryzen 7 3700X tested at 1-3ms.            
+            #time_start_res = time.time()
+            #out = librosa.resample(audio, orig_sr=self.pp_sampling_rate, target_sr=self.sampling_rate, res_type="soxr_vhq")
+            #print(f"Output down sample took: {time.time()-time_start_res}")
+            out = audio
 
+        # Average response time on RTX 2070S observed between 60-80ms.
+        print(f"Conversion took: {time.time()-time_start}")
         return out
 
     @abstractmethod
@@ -88,16 +102,30 @@ class ConversionPipeline(StudioModelConversionPipeline):
 
         self._sample_rate = sample_rate
         
-        fade_duration_ms = 20
-        self._fade_samples = int(fade_duration_ms / 1000 * self._sample_rate)  # 20ms
+        fade_duration_ms = 20  # 20ms
+        self._fade_samples = int(fade_duration_ms / 1000 * self._sample_rate) # sample count
 
         self._linear_fade_in = np.linspace(0, 1, self._fade_samples, dtype=np.float32)
         self._linear_fade_out = np.linspace(1, 0, self._fade_samples, dtype=np.float32)
         self._old_samples = np.zeros(self._fade_samples, dtype=np.float32)
+        
+        self.crossfade = True
+
+    def set_crossfade(self, crossfade: bool):
+        self.crossfade = crossfade
 
     def run(self, wav: np.ndarray, HDW_FRAMES_PER_BUFFER: int):
-        return self.run_cross_fade(wav, HDW_FRAMES_PER_BUFFER)
-
+        if self.crossfade:
+            return self.run_cross_fade(wav, HDW_FRAMES_PER_BUFFER)
+        else:
+            return self.run_unaltered(wav, HDW_FRAMES_PER_BUFFER)
+        
+    # Direct return. Observed to have a little bit of "poppy" and crackling.
+    def run_unaltered(self, wav: np.ndarray, HDW_FRAMES_PER_BUFFER: int):
+        out = self.infer(wav)
+        
+        return out[-HDW_FRAMES_PER_BUFFER:]
+        
     # Linear cross-fade
     def run_cross_fade(self, wav: np.ndarray, HDW_FRAMES_PER_BUFFER: int):
         out = self.infer(wav)
@@ -106,8 +134,9 @@ class ConversionPipeline(StudioModelConversionPipeline):
         out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -HDW_FRAMES_PER_BUFFER] = (
             out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -HDW_FRAMES_PER_BUFFER] * self._linear_fade_in
         ) + (self._old_samples * self._linear_fade_out)
-        # save
+
+        # save old sample for next time.
         self._old_samples = out[-self._fade_samples :]
+
         # send
-        out = out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -self._fade_samples]
-        return out        
+        return out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -self._fade_samples]        
