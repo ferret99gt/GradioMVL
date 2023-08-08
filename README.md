@@ -23,11 +23,15 @@ This is a reworking of MetaVoiceLive to completely strip out the Electron layer 
 ## Use
 
  - Pick your input and output devices.
- - Adjust the latency slider according to your system hardware.
-   - I have been able to test very low even on a 2070S. But I generally don't recommend lower than 300, and find 350-400 to be the sweet spot.
-   - Note this is the one way latency. So it's 400ms in, 400ms back, for 800ms total.
- - Pick your voice! yara is used as a default.
+ - Adjust the input latency slider according to your system hardware.
+   - Input latency is how frequently audio will be gathered to send to the model. 400ms is the default. Below 200ms may produce a lot of stuttering.
+   - Output latency is determined by your GPU's performance. As soon as the model produces audio, it will be output to you.
+   - Total round trip will be the input latency + how long your GPU needs to convert audio.
+   - I have been able to test very low even on a 2070S. But I generally don't recommend lower than 300, and find 300-400 to be the sweet spot.
+ - Pick your voice! yara is used as a default. The voice can be changed at any time, including while already converting.
  - Press Start and go!
+ - Press Pause to pause the AI conversion and send your real voice.
+ - Press Stop to shutdown the audio completely. This is required to change the input/output devices or the input latency.
  
 ## Advanced
 
