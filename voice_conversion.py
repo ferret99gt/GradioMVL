@@ -1,7 +1,7 @@
 import abc
+import math
 import os
 import threading
-
 import time
 
 from abc import abstractmethod
@@ -107,27 +107,36 @@ class ConversionPipeline(StudioModelConversionPipeline):
 
         self._linear_fade_in = np.linspace(0, 1, self._fade_samples, dtype=np.float32)
         self._linear_fade_out = np.linspace(1, 0, self._fade_samples, dtype=np.float32)
+        
+        self._constant_power_fade_in = []
+        self._constant_power_fade_out = []
+        
+        for t in self._linear_fade_in:
+            self._constant_power_fade_in.append(math.sqrt(t))
+
+        for t in self._linear_fade_out:
+            self._constant_power_fade_out.append(math.sqrt(t))
+
+        self._constant_power_fade_in = np.array(self._constant_power_fade_in)
+        self._constant_power_fade_out = np.array(self._constant_power_fade_out)
+        
         self._old_samples = np.zeros(self._fade_samples, dtype=np.float32)
         
-        self.crossfade = True
+        self.crossfade = "linear"
 
-    def set_crossfade(self, crossfade: bool):
+    def set_crossfade(self, crossfade: str):
         self.crossfade = crossfade
 
     def run(self, wav: np.ndarray, HDW_FRAMES_PER_BUFFER: int):
-        if self.crossfade:
-            return self.run_cross_fade(wav, HDW_FRAMES_PER_BUFFER)
+        if self.crossfade == "linear":
+            return self.run_linear_crossfade(wav, HDW_FRAMES_PER_BUFFER)
+        elif self.crossfade == "constant power":
+            return self.run_constant_power_crossfade(wav, HDW_FRAMES_PER_BUFFER)
         else:
             return self.run_unaltered(wav, HDW_FRAMES_PER_BUFFER)
-        
-    # Direct return. Observed to have a little bit of "poppy" and crackling.
-    def run_unaltered(self, wav: np.ndarray, HDW_FRAMES_PER_BUFFER: int):
-        out = self.infer(wav)
-        
-        return out[-HDW_FRAMES_PER_BUFFER:]
-        
+
     # Linear cross-fade
-    def run_cross_fade(self, wav: np.ndarray, HDW_FRAMES_PER_BUFFER: int):
+    def run_linear_crossfade(self, wav: np.ndarray, HDW_FRAMES_PER_BUFFER: int):
         out = self.infer(wav)
 
         # cross-fade = fade_in + fade_out
@@ -139,4 +148,25 @@ class ConversionPipeline(StudioModelConversionPipeline):
         self._old_samples = out[-self._fade_samples :]
 
         # send
-        return out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -self._fade_samples]        
+        return out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -self._fade_samples]
+        
+    # constant power cross-fade
+    def run_constant_power_crossfade(self, wav: np.ndarray, HDW_FRAMES_PER_BUFFER: int):
+        out = self.infer(wav)
+
+        # cross-fade = fade_in + fade_out
+        out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -HDW_FRAMES_PER_BUFFER] = (
+            out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -HDW_FRAMES_PER_BUFFER] * self._constant_power_fade_in
+        ) + (self._old_samples * self._constant_power_fade_out)
+
+        # save old sample for next time.
+        self._old_samples = out[-self._fade_samples :]
+
+        # send
+        return out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -self._fade_samples]
+        
+    # Direct return. Observed to have a little bit of "poppy" and crackling.
+    def run_unaltered(self, wav: np.ndarray, HDW_FRAMES_PER_BUFFER: int):
+        out = self.infer(wav)
+        
+        return out[-HDW_FRAMES_PER_BUFFER:]
