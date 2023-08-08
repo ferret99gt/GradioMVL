@@ -9,7 +9,7 @@ This is a reworking of MetaVoiceLive to completely strip out the Electron layer 
 
 ## Setup
 
- - Install Python 3.10.x and make use it is added to PATH.
+ - Install Python 3.10.x and make sure it is added to PATH.
  - Clone this repo.
  - Get the MVL models. Retrieve a copy of the MVML 1.4 download or install the normal MVL to get it. Navigate to "resources\app\dist\metavoice\ai" and copy the entire studio_models folder to your new repo.
    - You should have "GradioMVL\studio_models" with the two .pt files, and "GradioMVL\studio_models\targets" with the .npy files.
