@@ -88,7 +88,7 @@ def startGenerateVoice(input, output, latency):
         
     outputDevice =  [p for p in devices['outputs'] if p["name"] == output];
     if outputDevice is None or len(outputDevice) != 1:
-        return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), gr.update(interactive=False), "Invalid input device selected, conversion not started."]
+        return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), gr.update(interactive=False), "Invalid output device selected, conversion not started."]
         
     if not voice_conversion.isTargetSet:
         return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), gr.update(interactive=False), "A voice is not selected yet, conversion not started."]
@@ -119,8 +119,8 @@ def stopGenerateVoice():
     global inference_rt_thread
     
     if inference_rt_thread is not None and inference_rt_thread.is_alive():
-        # Wait for end.        
         inference_rt_thread.status_queue.put("stop")
+        # Wait for end.
         inference_rt_thread.join()
     
     return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(value="Pause", interactive=False), gr.update(interactive=False), "Stopped!"]

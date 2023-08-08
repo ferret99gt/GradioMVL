@@ -36,23 +36,13 @@ class InferenceRt(threading.Thread):
         self.status_queue = status_queue
 
     def run(self):
-        # being lazy, sue me.
-        input_device_idx = self.input_device_idx
-        output_device_idx = self.output_device_idx
-        input_latency = self.input_latency
-        sample_rate = self.sample_rate
-        MAX_INFER_SAMPLES_VC = self.MAX_INFER_SAMPLES_VC
-        voice_conversion = self.voice_conversion
-        start_queue = self.start_queue
-        status_queue = self.status_queue
-        
-        print(f"input_device_idx: {input_device_idx}")
-        print(f"output_device_idx: {output_device_idx}")
-        print(f"input_latency: {input_latency}")
-        print(f"sample_rate: {sample_rate}")
-        print(f"MAX_INFER_SAMPLES_VC: {MAX_INFER_SAMPLES_VC}")
+        print(f"input_device_idx: {self.input_device_idx}")
+        print(f"output_device_idx: {self.output_device_idx}")
+        print(f"input_latency: {self.input_latency}")
+        print(f"sample_rate: {self.sample_rate}")
+        print(f"MAX_INFER_SAMPLES_VC: {self.MAX_INFER_SAMPLES_VC}")
     
-        HDW_FRAMES_PER_BUFFER = math.ceil(sample_rate * input_latency / 1000)
+        HDW_FRAMES_PER_BUFFER = math.ceil(self.sample_rate * self.input_latency / 1000)
         print(f"HDW_FRAMES_PER_BUFFER: {HDW_FRAMES_PER_BUFFER}")
 
         # init
@@ -60,19 +50,19 @@ class InferenceRt(threading.Thread):
 
         # run pipeline
         try:
-            audio_input_thread = audio_input(self.__p, q_in, sample_rate, input_device_idx, MAX_INFER_SAMPLES_VC, HDW_FRAMES_PER_BUFFER, queue.Queue())
-            conversion_thread = Conversion(q_in, q_out, voice_conversion, HDW_FRAMES_PER_BUFFER, queue.Queue(), args=())
-            audio_output_thread = audio_output(self.__p, q_out, sample_rate, output_device_idx, HDW_FRAMES_PER_BUFFER, queue.Queue())
+            audio_input_thread = audio_input(self.__p, q_in, self.sample_rate, self.input_device_idx, self.MAX_INFER_SAMPLES_VC, HDW_FRAMES_PER_BUFFER, queue.Queue())
+            conversion_thread = Conversion(q_in, q_out, self.voice_conversion, HDW_FRAMES_PER_BUFFER, queue.Queue(), args=())
+            audio_output_thread = audio_output(self.__p, q_out, self.sample_rate, self.output_device_idx, HDW_FRAMES_PER_BUFFER, queue.Queue())
             
             audio_input_thread.start()
             conversion_thread.start()      
             audio_output_thread.start()
 
             # We're started. Let parent thread know, and wait for stop.
-            start_queue.put_nowait("Started! Get to talking!")
+            self.start_queue.put_nowait("Started! Get to talking!")
 
             while True:
-                status = status_queue.get()
+                status = self.status_queue.get()
                 
                 if status == "pauseToggle":
                     conversion_thread.status_queue.put_nowait(status)
@@ -88,7 +78,7 @@ class InferenceRt(threading.Thread):
             print('y =', y)
         finally:
             # Did we somehow get here without marking ourselves as started? LET MAIN THREAD KNOW!
-            start_queue.put_nowait("Failed! UH... check the logs?")
+            self.start_queue.put_nowait("Failed! UH... check the logs?")
 
             # Wait for input to stop.
             audio_input_thread.stop_queue.put_nowait("stop")

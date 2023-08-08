@@ -13,10 +13,10 @@ lock = threading.Lock()
 
 # Base class for Pipeline
 class StudioModelConversionPipeline(abc.ABC):
-    def __init__(self):
+    def __init__(self, sample_rate: int):
         self.p_sampling_rate = 16000
         self.pp_sampling_rate = 24000
-        self.sampling_rate = 22050
+        self.sampling_rate = sample_rate # 22050 by default
 
         self.device = torch.device('cpu')
         if torch.cuda.is_available():
@@ -84,7 +84,7 @@ class StudioModelConversionPipeline(abc.ABC):
 # --------------------
 class ConversionPipeline(StudioModelConversionPipeline):
     def __init__(self, sample_rate: int):
-        super().__init__()
+        super().__init__(sample_rate)
 
         self._sample_rate = sample_rate
         
