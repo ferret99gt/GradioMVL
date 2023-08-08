@@ -61,7 +61,7 @@ class audio_input(threading.Thread):
                     # The model (and librosa) ultimately wants an ndarray. Convert it and ensure it's float32.
                     in_data_np = np.frombuffer(wav_bytes, dtype=np.float32)
 
-                    # Data is a rolling queue of chunks, totalling about 1.48s of audio. This is to give the model more to work with in terms of infering tone, inflection, etc.
+                    # Data is a rolling queue of chunks, totalling about 1.6s of audio. This is to give the model more to work with in terms of infering intonation, etc.
                     self.data.append(in_data_np)
                     
                     # Push into queue for the model. We splice because it's possible that deque has 1 more chunk than MAX_INFER_SAMPLES_VC wants.

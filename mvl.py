@@ -22,9 +22,26 @@ hop_length = int(0.0125 * input_sample_rate)  # Let's actually try that math, in
 
 # MVL: corresponds to 1.486s of audio, or 32768 samples in the time domain. This is the number of samples fed into the VC module
 # Us: With our tweaked hop_length above, this is 35280 samples, about 1.6s of audio. This may improve the model's tone/pitch/timbre/intonation? Just a little more audio to work from.
+"""
+IMPORTANT:
+
+The model is ALWAYS given the MAX_INFER_SAMPLES_VC amount of audio. A lower latency doesn't reduce the data the model receives. A higher latency doesn't increase it. The input latency
+controls how frequently the input stream is read. Each time it reads data, it puts it in a queue with the last x chunks worth of audio. The number of chunks depends on MAX_INFER_SAMPLES_VC
+divided by the input latency. This entire queue of chunks, sized to MAX_INFER_SAMPLES_VC, is what gets sent to the model. The model infers based on thae last 1.6 seconds of audio, returning
+a 1.6 second output wav. That output wav is then trimmed to the length of the input latency so only the "new" audio is output to you.
+
+A lower latency does not reduce the model's quality. It increases how frequently the model is called (impacting GPU usage) as well as reducing the size of the output audio. More frequent
+smaller chunks come back, leading to potential audio artifacts as the smaller chunks are streamed one by one. Each chunk is from a different model generation, so the output of the model
+subtly shifts each time. Let's assume a 200ms input latency. When you speak for 2 seconds, what comes back is 10 individual outputs from the model, each generated separate from each other.
+So there are 10 pieces of audio that are blended together, with 9 "seams" where the audio's character may change.
+
+A high latency doesn't increase the quality of the model's output. What it does is reduce how often the model is called, lowering GPU usage, and producing longer output chunks. Because
+the outputs are less frequent and longer, they will tend to have a more consistent sound. Let's assume a 1000ms input latency. When you speak for 2 seconds, what comes back is only 2 individual
+outputs from the model. Now there's a single seam, a single place where the audio's character might change.
+"""           
 MAX_INFER_SAMPLES_VC = num_samples * hop_length
 max_input_latency = int(num_samples * 0.0125 * 1000 - 1) # Max latency in ms allowed by MAX_INFER_SAMPLES_VC. Minus 1, so we're below the limit.
-max_input_latency = max_input_latency - (max_input_latency%50) # Round down to nearly 50 for latency slider stepping.
+max_input_latency = max_input_latency - (max_input_latency%50) # Round down to nearly 50 for latency slider stepping. This should end up being 1550ms.
 
 # Hardcode the seed.
 SEED = 1234  # numpy & torch PRNG seed
