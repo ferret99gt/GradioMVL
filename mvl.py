@@ -203,7 +203,7 @@ def start():
         voiceDrop.input(fn=setVoice, inputs=[voiceDrop, pauseButton], outputs=[startButton, text])
         startButton.click(fn=startGenerateVoice, inputs=[inputDrop, outputDrop, latencySlider, crossfadeDrop], outputs=[inputDrop, outputDrop, latencySlider, startButton, pauseButton, stopButton, text])
         pauseButton.click(fn=pauseGenerateVoice, inputs=pauseButton, outputs=[pauseButton, text])
-        stopButton.click(fn=stopGenerateVoice, inputs=None, outputs=[inputDrop, outputDrop, latencySlider, startButton, pauseButton, stopButton, text])
+        stopButton.click(fn=stopGenerateVoice, inputs=[], outputs=[inputDrop, outputDrop, latencySlider, startButton, pauseButton, stopButton, text])
 
     demo.launch()
     

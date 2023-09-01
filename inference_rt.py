@@ -2,8 +2,10 @@ import math
 import threading
 import queue
 
+import numpy as np
 import pyaudio
 
+from collections import deque
 from voice_conversion import ConversionPipeline
 from conversion_thread import Conversion
 from audio_input_thread import audio_input
@@ -45,20 +47,29 @@ class InferenceRt(threading.Thread):
         print(f"output_sample_rate: {self.output_sample_rate}")
         print(f"MAX_INFER_SAMPLES_VC: {self.MAX_INFER_SAMPLES_VC}")
     
-        HDW_FRAMES_PER_BUFFER_IN = math.ceil(self.input_sample_rate * self.input_latency / 1000)
-        HDW_FRAMES_PER_BUFFER_OUT = math.ceil(self.output_sample_rate * self.input_latency / 1000)
+        HDW_FRAMES_PER_BUFFER_IN = math.ceil(self.input_sample_rate * self.input_latency / 5000) # Gather input audio five times faster than selected input.
+        HDW_FRAMES_PER_BUFFER_OUT = math.ceil(self.output_sample_rate * self.input_latency / 1000) # Output audio has to match the expected latency of the model conversion thread.
         
         print(f"HDW_FRAMES_PER_BUFFER_IN: {HDW_FRAMES_PER_BUFFER_IN}")
         print(f"HDW_FRAMES_PER_BUFFER_OUT: {HDW_FRAMES_PER_BUFFER_OUT}")
+        
+        NUM_CHUNKS = math.ceil(self.MAX_INFER_SAMPLES_VC / HDW_FRAMES_PER_BUFFER_IN)
+        print(f"NUM_CHUNKS: {NUM_CHUNKS}")
 
-        # init
-        q_in, q_out = queue.Queue(), queue.Queue()
+        # create rolling deque for audio input data packets
+        q_in = deque(maxlen=NUM_CHUNKS)
+        for _ in range(NUM_CHUNKS):
+            in_data = np.zeros(HDW_FRAMES_PER_BUFFER_IN, dtype=np.float32)
+            q_in.append(in_data)            
+        
+        # create output deque for audio output packets.
+        q_out = queue.Queue()
 
         # run pipeline
         try:
-            audio_input_thread = audio_input(self.__p, q_in, self.input_sample_rate, self.input_device_idx, self.MAX_INFER_SAMPLES_VC, HDW_FRAMES_PER_BUFFER_IN, queue.Queue())
-            conversion_thread = Conversion(q_in, q_out, self.voice_conversion, HDW_FRAMES_PER_BUFFER_OUT, queue.Queue(), args=())
-            audio_output_thread = audio_output(self.__p, q_out, self.output_sample_rate, self.output_device_idx, HDW_FRAMES_PER_BUFFER_OUT, queue.Queue())
+            audio_input_thread = audio_input(self.__p, q_in, self.input_sample_rate, self.input_device_idx, HDW_FRAMES_PER_BUFFER_IN)
+            conversion_thread = Conversion(q_in, q_out, self.voice_conversion, self.input_latency, self.MAX_INFER_SAMPLES_VC, HDW_FRAMES_PER_BUFFER_OUT)
+            audio_output_thread = audio_output(self.__p, q_out, self.output_sample_rate, self.output_device_idx, HDW_FRAMES_PER_BUFFER_OUT)
             
             audio_input_thread.start()
             conversion_thread.start()      
