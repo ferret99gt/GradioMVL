@@ -189,7 +189,7 @@ def start():
         with gr.Row():
             inputDrop = gr.Dropdown(choices=inputNames, label="Input Device");
             outputDrop = gr.Dropdown(choices=outputNames, label="Output Device");
-            latencySlider = gr.Slider(50, max_input_latency, label="Input latency (milliseconds)", step=50, value=300);
+            latencySlider = gr.Slider(50, max_input_latency, label="Input latency (milliseconds)", step=10, value=300);
             crossfadeDrop = gr.Dropdown(choices=crossFadeNames, value="linear", label="Crossfade Method");
         with gr.Row():
             voiceDrop = gr.Dropdown(choices=voices, value="yara", label="Voice File");
