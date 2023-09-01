@@ -64,7 +64,6 @@ class Conversion(threading.Thread):
                         out = wav[-HDW_FRAMES_PER_BUFFER:]
 
                     # Queue the result up for the audio output thread.
-                    # This queue has a size of 1, and we're blocking here. This is to ensure the output thread has picked up the last segment first.
                     self.q_out.put_nowait(out.tobytes())
                 
                 # Check the status queue for instructions.
