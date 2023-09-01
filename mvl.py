@@ -26,9 +26,9 @@ hop_length = int(0.0125 * input_sample_rate)  # Let's actually try that math, in
 IMPORTANT:
 
 The model is ALWAYS given the MAX_INFER_SAMPLES_VC amount of audio. A lower latency doesn't reduce the data the model receives. A higher latency doesn't increase it. The input latency
-controls how frequently the input stream is read. Each time it reads data, it puts it in a queue with the last x chunks worth of audio. The number of chunks depends on MAX_INFER_SAMPLES_VC
-divided by the input latency. This entire queue of chunks, sized to MAX_INFER_SAMPLES_VC, is what gets sent to the model. The model infers based on thae last 1.6 seconds of audio, returning
-a 1.6 second output wav. That output wav is then trimmed to the length of the input latency so only the "new" audio is output to you.
+controls how frequently the model will attempt to run, with whatever audio is available from the input stream is read. Each time it reads data, it tracks how many new chunks of audio it
+received. This entire queue of chunks, sized to MAX_INFER_SAMPLES_VC, is what gets sent to the model. The model infers based on the last 1.6 seconds of audio, returning a 1.6 second output
+wav. That output wav is then trimmed based on the number of new input chunks that were received, so only the "new" audio is output to you.
 
 A lower latency does not reduce the model's quality. It increases how frequently the model is called (impacting GPU usage) as well as reducing the size of the output audio. More frequent
 smaller chunks come back, leading to potential audio artifacts as the smaller chunks are streamed one by one. Each chunk is from a different model generation, so the output of the model
@@ -185,7 +185,7 @@ def start():
     crossFadeNames = ["linear", "constant power", "none"]
 
     with gr.Blocks() as demo:
-        gr.Markdown("Select an input device, output device, adjust your input latency, and select a voice. Then press Start.  \nInput latency is how frequently audio will be gathered to send to the model. Below 200ms may produce a lot of stuttering.  \nOutput latency is determined by your GPU's performance. As soon as the model produces audio, it will be output to you.  \nTotal round trip will be the input latency + how long your GPU needs to convert audio.  \n  \nCrossfade can be switched at any time. MVL uses linear. Disabling entirely will introduce some \"popping\".  \nThe Voice drop down can be changed at any time without stopping!  \nThe Pause button will allow your normal voice through!  \nThe Stop button will stop audio entirely, and may take up to 5 seconds to complete.")
+        gr.Markdown("Select an input device, output device, adjust your input latency, and select a voice. Then press Start.  \nInput latency is how frequently the model will run. Below 100ms may produce a lot of stuttering if your GPU cannot convert audio fast enough. Watch the console and raise the latency if model is taking too long. Even if your GPU can keep up, higher latencies may be \"smoother\".  \n  \nCrossfade can be switched at any time. MVL uses linear. Disabling entirely will introduce some \"popping\".  \nThe Voice drop down can be changed at any time without stopping!  \nThe Pause button will allow your normal voice through!  \nThe Stop button will stop audio entirely, and may take up to 3 seconds to complete.")
         with gr.Row():
             inputDrop = gr.Dropdown(choices=inputNames, label="Input Device");
             outputDrop = gr.Dropdown(choices=outputNames, label="Output Device");

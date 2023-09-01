@@ -29,7 +29,7 @@ I also borrowed the launch/setup code from: https://github.com/AUTOMATIC1111/sta
    - Set max input latency based on size of input buffer to model. Can't be bigger!
    - Added constant power crossfade option.
  - 2023-09-xx:
-   - Reworked input/conversion/output threads to further improve latency.
+   - Reworked input/conversion/output threads again to further improve latency.
 
 ## Setup
 

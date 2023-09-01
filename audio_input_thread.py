@@ -35,7 +35,6 @@ class audio_input(threading.Thread):
             input=True,
             output=False,
             start=False,
-            frames_per_buffer=self.HDW_FRAMES_PER_BUFFER,
             input_device_index=self.input_device_idx,
         )
         io_stream.start_stream()    

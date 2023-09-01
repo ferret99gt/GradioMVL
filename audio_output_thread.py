@@ -9,7 +9,6 @@ class audio_output(threading.Thread):
         q_out: queue.Queue,
         sample_rate: int,
         output_device_idx: int,
-        HDW_FRAMES_PER_BUFFER: int,
         args=(),
         kwargs=None,
     ):
@@ -19,7 +18,6 @@ class audio_output(threading.Thread):
         self.q_out = q_out
         self.sample_rate = sample_rate
         self.output_device_idx = output_device_idx
-        self.HDW_FRAMES_PER_BUFFER = HDW_FRAMES_PER_BUFFER
         self.stop_queue = queue.Queue()
         
     def run(self):
@@ -31,7 +29,6 @@ class audio_output(threading.Thread):
             input=False,
             output=True,
             start=False,
-            frames_per_buffer=self.HDW_FRAMES_PER_BUFFER,
             output_device_index=self.output_device_idx,
         )
         io_stream.start_stream()    

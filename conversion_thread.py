@@ -1,3 +1,4 @@
+import math
 import queue
 import threading
 import time
@@ -10,22 +11,24 @@ from voice_conversion import ConversionPipeline
 class Conversion(threading.Thread):
     def __init__(self,
         q_in: deque,
+        q_work: deque,
         q_out: queue.Queue,
         voice_conversion: ConversionPipeline,
         latency: float,
+        output_sample_rate: int,
         MAX_INFER_SAMPLES_VC: int,
-        HDW_FRAMES_PER_BUFFER: int,
         args=(),
         kwargs=None,
     ):
         threading.Thread.__init__(self, args=(), kwargs=None)
  
         self.q_in = q_in
+        self.q_work = q_work
         self.q_out = q_out
         self.voice_conversion = voice_conversion
         self.latency = latency / 1000 # milliseconds
+        self.output_sample_rate = output_sample_rate        
         self.MAX_INFER_SAMPLES_VC = MAX_INFER_SAMPLES_VC
-        self.HDW_FRAMES_PER_BUFFER = HDW_FRAMES_PER_BUFFER
         self.status_queue = queue.Queue()
         self.paused = False
         
@@ -36,18 +39,33 @@ class Conversion(threading.Thread):
                 time_start = time.time()
                 
                 # Get the PyAudio input deque data.
-                # q_in is a rolling queue of chunks, totalling about 1.6s of audio. This is to give the model more to work with in terms of infering intonation, etc.
-                wav = np.array(self.q_in).flatten()[-self.MAX_INFER_SAMPLES_VC:]
+                newChunks = 0
+                try:
+                    while True:
+                        self.q_work.append(self.q_in.popleft())
+                        newChunks += 1
+                except IndexError:
+                    pass
+                
+                if newChunks > 0:
+                    # The frames per buffer is the sampling rate times the duration of audio.
+                    # Input audio is gathering chunks 5 times faster than the selected latency. (That is, 500ms -> 100ms)
+                    # And we had this many new chunks from the input deque.
+                    HDW_FRAMES_PER_BUFFER = math.ceil(self.output_sample_rate * self.latency / 5) * newChunks
+                    #print(f"newChunks: {newChunks}, HDW_FRAMES_PER_BUFFER: {HDW_FRAMES_PER_BUFFER}")
+                    
+                    # q_work is a rolling queue of chunks, totalling about 1.6s of audio. This is to give the model more to work with in terms of infering intonation, etc.
+                    wav = np.array(self.q_work).flatten()[-self.MAX_INFER_SAMPLES_VC:]
 
-                # Infer!
-                if not self.paused:
-                    out = self.voice_conversion.run(wav, self.HDW_FRAMES_PER_BUFFER)
-                else:
-                    out = wav[-self.HDW_FRAMES_PER_BUFFER:]
+                    # Infer!
+                    if not self.paused:
+                        out = self.voice_conversion.run(wav, HDW_FRAMES_PER_BUFFER)
+                    else:
+                        out = wav[-HDW_FRAMES_PER_BUFFER:]
 
-                # Queue the result up for the audio output thread.
-                # This queue has a size of 1, and we're blocking here. This is to ensure the output thread has picked up the last segment first.
-                self.q_out.put_nowait(out.tobytes())
+                    # Queue the result up for the audio output thread.
+                    # This queue has a size of 1, and we're blocking here. This is to ensure the output thread has picked up the last segment first.
+                    self.q_out.put_nowait(out.tobytes())
                 
                 # Check the status queue for instructions.
                 try:
