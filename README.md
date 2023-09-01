@@ -28,6 +28,8 @@ I also borrowed the launch/setup code from: https://github.com/AUTOMATIC1111/sta
    - Adjust default input latency to 300ms for now.
    - Set max input latency based on size of input buffer to model. Can't be bigger!
    - Added constant power crossfade option.
+ - 2023-09-xx:
+   - Reworked input/conversion/output threads to further improve latency.
 
 ## Setup
 
