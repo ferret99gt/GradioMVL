@@ -85,7 +85,7 @@ if not os.path.exists(modelDirectory + "\\model.pt"):
     
 # preprocess model?
 if not os.path.exists(modelDirectory + "\\b_model.pt"):
-    print("Downloading b_model.pt from MetaVoiceLive Github, about 1.2gigs. This will take a while.")
+    print("Downloading b_model.pt from MetaVoiceLive Github, about 1.2gigs. This will take a while but will only happen once.")
     downloadFile("b_model.pt", modelDirectory + "\\b_model.pt")
 
 # default voices
