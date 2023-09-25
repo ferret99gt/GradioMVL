@@ -1,4 +1,10 @@
 __pycache__/
-studio_models/
 tmp/
 venv/
+studio_models/targets/zeus.npy
+studio_models/targets/yara.npy
+studio_models/targets/scarlett.npy
+studio_models/targets/eva.npy
+studio_models/targets/blake.npy
+studio_models/model.pt
+studio_models/b_model.pt

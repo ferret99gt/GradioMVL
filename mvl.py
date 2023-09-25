@@ -4,6 +4,7 @@ import numpy as np
 import os
 import queue
 import random
+import requests
 import torch 
 import pyaudio
 
@@ -49,12 +50,72 @@ np.random.seed(SEED)
 random.seed(SEED)
 torch.manual_seed(SEED)
 
-# Where are the voice targets?
-voiceDirectory = "studio_models\\targets"
+# Borrowed download method.
+def downloadFile(file_path: str, destination_path: str):
 
-# Hold the thread, model and devices.
-inference_rt_thread = None
-voice_conversion = None
+    url = f"https://github.com/metavoicexyz/MetaVoiceLive/raw/main/ai/models/{file_path}?download="
+    # Send a GET request to the API endpoint
+    response = requests.get(url)
+
+    # Check if the request was successful
+    if response.status_code == 200:
+        # Save the file content to the local destination path
+        with open(destination_path, "wb") as file:
+            file.write(response.content)
+
+        print("File downloaded successfully.")
+    else:
+        print("File download failed.")
+
+# Where are the voice targets?
+modelDirectory = "studio_models"
+voiceDirectory = modelDirectory + "\\targets"
+
+# Do we have the models?
+if not os.path.exists(modelDirectory):
+    os.mkdir(modelDirectory)
+    
+if not os.path.exists(voiceDirectory):
+    os.mkdir(voiceDirectory)
+    
+# main model?
+if not os.path.exists(modelDirectory + "\\model.pt"):
+    print("Downloading model.pt from MetaVoiceLive Github, about 154megs. Please wait a moment.")
+    downloadFile("model.pt", modelDirectory + "\\model.pt")
+    
+# preprocess model?
+if not os.path.exists(modelDirectory + "\\b_model.pt"):
+    print("Downloading b_model.pt from MetaVoiceLive Github, about 1.2gigs. This will take a while.")
+    downloadFile("b_model.pt", modelDirectory + "\\b_model.pt")
+
+# default voices
+if not os.path.exists(voiceDirectory + "\\blake.npy"):
+    print("Downloading blake voice from MetaVoiceLive Github.")
+    downloadFile("/targets/blake.npy", voiceDirectory + "\\blake.npy")
+    
+if not os.path.exists(voiceDirectory + "\\eva.npy"):
+    print("Downloading eva voice from MetaVoiceLive Github.")
+    downloadFile("/targets/eva.npy", voiceDirectory + "\\eva.npy")
+
+if not os.path.exists(voiceDirectory + "\\scarlett.npy"):
+    print("Downloading scarlett voice from MetaVoiceLive Github.")
+    downloadFile("/targets/scarlett.npy", voiceDirectory + "\\scarlett.npy")
+    
+if not os.path.exists(voiceDirectory + "\\yara.npy"):
+    print("Downloading yara voice from MetaVoiceLive Github.")
+    downloadFile("/targets/yara.npy", voiceDirectory + "\\yara.npy")
+
+if not os.path.exists(voiceDirectory + "\\zeus.npy"):
+    print("Downloading zeus voice from MetaVoiceLive Github.")
+    downloadFile("/targets/zeus.npy", voiceDirectory + "\\zeus.npy")
+
+# Retrieve available voices.
+voices = []
+for filename in os.listdir(voiceDirectory):
+    f = os.path.join(voiceDirectory, filename)
+    # checking if it is a file
+    if os.path.isfile(f):
+        voices.append(filename[0:-4])
 
 # Collect audio devices from hostApi 0
 # MVL used only hostApi 0 and it seems fine, but should look into this again later.
@@ -79,6 +140,10 @@ p.terminate()
 devices = dict()
 devices["inputs"] = inputs
 devices["outputs"] = outputs
+
+# Retrieve available devices.
+inputNames = [p["name"] for p in devices['inputs']];
+outputNames = [p["name"] for p in devices['outputs']];
 
 def setCrossfade(crossfade):
     global voice_conversion
@@ -168,18 +233,6 @@ def start():
         wav = np.random.rand(MAX_INFER_SAMPLES_VC).astype(np.float32)
         voice_conversion.run(wav, warmup_frames_per_buffer)
     print("Model ready and warmed up!")
-
-    # Retrieve available voices.
-    voices = []
-    for filename in os.listdir(voiceDirectory):
-        f = os.path.join(voiceDirectory, filename)
-        # checking if it is a file
-        if os.path.isfile(f):
-            voices.append(filename[0:-4])
-
-    # Retrieve available devices.
-    inputNames = [p["name"] for p in devices['inputs']];
-    outputNames = [p["name"] for p in devices['outputs']];
     
     # cross faders
     crossFadeNames = ["linear", "constant power", "none"]

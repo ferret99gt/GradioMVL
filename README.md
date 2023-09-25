@@ -1,6 +1,8 @@
 # Gradio MetaVoiceLive
 This is a reworking of MetaVoiceLive to completely strip out the Electron layer and JavaScript reliance. It's a pure Python implementation. All unnecessary code removed.
 
+MVL: https://github.com/metavoicexyz/MetaVoiceLive
+
 MVL is based in part on the following projects, or related projects/papers:
  - https://github.com/ebadawy/voice_conversion/
  - https://github.com/CorentiJ/Real-Time-Voice-Conversion/
@@ -28,18 +30,18 @@ I also borrowed the launch/setup code from: https://github.com/AUTOMATIC1111/sta
    - Adjust default input latency to 300ms for now.
    - Set max input latency based on size of input buffer to model. Can't be bigger!
    - Added constant power crossfade option.
- - 2023-09-xx:
-   - Reworked input/conversion/output threads again to further improve latency.
+ - 2023-09-25:
+   - Reworked input/conversion/output threads again to further improve latency. A tad unsure on this, may revert in future.
+   - Added "zeroed" default voice, provided on Discord by Quack.
+   - Added automatic download of MetaVoiceLive models. No more getting MVML 1.4 manually and copying it over.
 
 ## Setup
 
  - Install Python 3.10.x and make sure it is added to PATH.
  - Clone this repo.
- - Get the MVL models. Retrieve a copy of the MVML 1.4 download or install the normal MVL to get it. Navigate to "resources\app\dist\metavoice\ai" and copy the entire studio_models folder to your new repo.
-   - You should have "GradioMVL\studio_models" with the two .pt files, and "GradioMVL\studio_models\targets" with the .npy files.
-   - This is not optional, you must have these files.
  - Either open a command window and navgiate to the repo, or find it in Explorer. Run launch.bat! It will install all dependencies and then start!
    - The first time launch will take a bit as it has to download and install Torch, a 2+ gig install.
+   - It will also download the models from the MetaVoiceLive github repo. The preprocessor model is about 1.2 gig so may take a moment as well.
    - GradioMVL makes a Python VENV, so everything is self-contained. You can delete the repo entirely and it'll all be cleaned up.
  - GradioMVL will load the model. There is a warm-up process that takes approximately 30-45 seconds to complete.
  - When you're told to open localhost:7860 you're ready to go! Just open it in your web browser.
@@ -48,7 +50,7 @@ I also borrowed the launch/setup code from: https://github.com/AUTOMATIC1111/sta
 
  - Pick your input and output devices.
  - Adjust the input latency slider according to your system hardware.
-   - Input latency is how frequently audio will be gathered to send to the model. 300ms is the default.
+   - Input latency is how frequently the model will run. 300ms is the default.
    - Output latency is determined by your GPU's performance. As soon as the model produces audio, it will be output to you.
    - Total round trip will be the input latency + how long your GPU needs to convert audio. The conversion timing is output to the console.
    - Testing on a RTX 2070S shows an average model response time of 60-80ms, meaning a 300ms input latency will result in a 360-380ms total latency. There may be periodic spikes.
