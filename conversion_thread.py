@@ -1,47 +1,73 @@
-import threading
+import math
 import queue
+import threading
+import time
 
+import numpy as np
+
+from collections import deque
 from voice_conversion import ConversionPipeline
 
 class Conversion(threading.Thread):
     def __init__(self,
-        q_in: queue.Queue,
+        q_in: deque,
+        q_work: deque,
         q_out: queue.Queue,
         voice_conversion: ConversionPipeline,
-        HDW_FRAMES_PER_BUFFER: int,
-        status_queue: queue.Queue,
+        latency: float,
+        output_sample_rate: int,
+        MAX_INFER_SAMPLES_VC: int,
         args=(),
         kwargs=None,
     ):
         threading.Thread.__init__(self, args=(), kwargs=None)
-        
+ 
         self.q_in = q_in
+        self.q_work = q_work
         self.q_out = q_out
         self.voice_conversion = voice_conversion
-        self.HDW_FRAMES_PER_BUFFER = HDW_FRAMES_PER_BUFFER
-        self.status_queue = status_queue
+        self.latency = latency / 1000 # milliseconds
+        self.output_sample_rate = output_sample_rate        
+        self.MAX_INFER_SAMPLES_VC = MAX_INFER_SAMPLES_VC
+        self.status_queue = queue.Queue()
         self.paused = False
         
     def run(self):
         try:
             while True:
+                # Time it.
+                time_start = time.time()
+                
+                # Get the PyAudio input deque data.
+                newChunks = 0
                 try:
-                    # Wait on PyAudio input. We have a timeout so if the model never gives us anything, we'll break the block and loop around to check stop_queue
-                    wav = self.q_in.get(timeout=5)
+                    while True:
+                        self.q_work.append(self.q_in.popleft())
+                        newChunks += 1
+                except IndexError:
+                    pass
+                
+                if newChunks > 0:
+                    # The frames per buffer is the sampling rate times the duration of audio.
+                    # Input audio is gathering chunks 5 times faster than the selected latency. (That is, 500ms -> 100ms)
+                    # And we had this many new chunks from the input deque.
+                    HDW_FRAMES_PER_BUFFER = math.ceil(self.output_sample_rate * self.latency / 5) * newChunks
+                    #print(f"newChunks: {newChunks}, HDW_FRAMES_PER_BUFFER: {HDW_FRAMES_PER_BUFFER}")
+                    
+                    # q_work is a rolling queue of chunks, totalling about 1.6s of audio. This is to give the model more to work with in terms of infering intonation, etc.
+                    wav = np.array(self.q_work).flatten()[-self.MAX_INFER_SAMPLES_VC:]
 
                     # Infer!
                     if not self.paused:
-                        out = self.voice_conversion.run(wav, self.HDW_FRAMES_PER_BUFFER)
+                        out = self.voice_conversion.run(wav, HDW_FRAMES_PER_BUFFER)
                     else:
-                        out = wav[-self.HDW_FRAMES_PER_BUFFER:]
+                        out = wav[-HDW_FRAMES_PER_BUFFER:]
 
-                    # Queue it up for the audio output thread.
+                    # Queue the result up for the audio output thread.
                     self.q_out.put_nowait(out.tobytes())
-                except queue.Empty:
-                    pass
                 
+                # Check the status queue for instructions.
                 try:
-                    # Check the status queue for instructions.
                     status = self.status_queue.get_nowait()
                     
                     # Pause? Stop?
@@ -52,6 +78,20 @@ class Conversion(threading.Thread):
                         
                 except queue.Empty:
                     pass
+                    
+                # We need to finish all work before self.latency or we're going to cut stuff off.
+                duration = time.time() - time_start
+                if duration < self.latency:
+                    sleep_time = self.latency - duration
+                    if(sleep_time < 0.001):
+                        sleep_time = 0.001
+                    
+                    # Sleep while waiting for new audio input.
+                    time.sleep(sleep_time)
+                else:
+                    # Report we overran, then loop back around.
+                    print("Model generation logic took longer than specified latency.")
+                    
         except KeyboardInterrupt:
             pass
         finally:
