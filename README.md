@@ -2,6 +2,7 @@
 This is a reworking of MetaVoiceLive to completely strip out the Electron layer and JavaScript reliance. It's a pure Python implementation. All unnecessary code removed.
 
 MVL: https://github.com/metavoicexyz/MetaVoiceLive
+MetaVoice Studio: https://studio.themetavoice.xyz/
 
 MVL is based in part on the following projects, or related projects/papers:
  - https://github.com/ebadawy/voice_conversion/
@@ -34,6 +35,9 @@ I also borrowed the launch/setup code from: https://github.com/AUTOMATIC1111/sta
    - Reworked input/conversion/output threads again to further improve latency. A tad unsure on this, may revert in future.
    - Added "zeroed" default voice, provided on Discord by Quack.
    - Added automatic download of MetaVoiceLive models. No more getting MVML 1.4 manually and copying it over.
+ - 2023-12-20:
+   - Due to the second week long outage of the Studio web site, I added a new tab allowing you to choose and convert an audio file, similar to Studio.
+   - MVL's model is not nearly as good as Studio's, so don't expect miracles.
 
 ## Setup
 
@@ -48,18 +52,25 @@ I also borrowed the launch/setup code from: https://github.com/AUTOMATIC1111/sta
  
 ## Use
 
- - Pick your input and output devices.
- - Adjust the input latency slider according to your system hardware.
-   - Input latency is how frequently the model will run. 300ms is the default.
-   - Output latency is determined by your GPU's performance. As soon as the model produces audio, it will be output to you.
-   - Total round trip will be the input latency + how long your GPU needs to convert audio. The conversion timing is output to the console.
-   - Testing on a RTX 2070S shows an average model response time of 60-80ms, meaning a 300ms input latency will result in a 360-380ms total latency. There may be periodic spikes.
-   - Generally recommend that you set the input latency to be double your GPU's response time or more. This is to ensure the input never overruns the model's conversion.
-   - The lower the input latency, the more frequently the model is called, and the more GPU you'll use. You may need to increase input latency if you want to convert while gaming.
- - Pick your voice! yara is used as a default. The voice can be changed at any time, including while already converting.
- - Press Start and go!
- - Press Pause to pause the AI conversion and send your real voice.
- - Press Stop to shutdown the audio completely. This is required to change the input/output devices or the input latency.
+ - Live:
+   - Pick your input and output devices.
+   - Adjust the input latency slider according to your system hardware.
+     - Input latency is how frequently the model will run. 300ms is the default.
+     - Output latency is determined by your GPU's performance. As soon as the model produces audio, it will be output to you.
+     - Total round trip will be the input latency + how long your GPU needs to convert audio. The conversion timing is output to the console.
+     - Testing on a RTX 2070S shows an average model response time of 60-80ms, meaning a 300ms input latency will result in a 360-380ms total latency. There may be periodic spikes.
+     - Generally recommend that you set the input latency to be double your GPU's response time or more. This is to ensure the input never overruns the model's conversion.
+     - The lower the input latency, the more frequently the model is called, and the more GPU you'll use. You may need to increase input latency if you want to convert while gaming.
+   - Pick your voice! yara is used as a default. The voice can be changed at any time, including while already converting.
+   - Press Start and go!
+   - Press Pause to pause the AI conversion and send your real voice.
+   - Press Stop to shutdown the audio completely. This is required to change the input/output devices or the input latency.
+ - Studio:
+   - Choose an audio file!
+   - Choose a voice!
+   - Press convert!
+   - Wait! The first time a file is processed will take longer. After the first time, changing voices will convert again much faster.
+   - Listen!
  
 ## Advanced
 

@@ -134,6 +134,16 @@ class ConversionPipeline(StudioModelConversionPipeline):
             return self.run_constant_power_crossfade(wav, HDW_FRAMES_PER_BUFFER)
         else:
             return self.run_unaltered(wav, HDW_FRAMES_PER_BUFFER)
+            
+    def runCustomSampleRate(self, wav: np.ndarray, inputSamplingRate: int):
+        originalRate = self.input_sample_rate
+        self.input_sample_rate = inputSamplingRate
+    
+        out = self.run_unaltered(wav, 0)
+        
+        self.input_sample_rate = originalRate
+        
+        return out
 
     # Linear cross-fade
     def run_linear_crossfade(self, wav: np.ndarray, HDW_FRAMES_PER_BUFFER: int):
@@ -169,4 +179,7 @@ class ConversionPipeline(StudioModelConversionPipeline):
     def run_unaltered(self, wav: np.ndarray, HDW_FRAMES_PER_BUFFER: int):
         out = self.infer(wav)
         
-        return out[-HDW_FRAMES_PER_BUFFER:]
+        if HDW_FRAMES_PER_BUFFER == 0:
+            return out
+        else:
+            return out[-HDW_FRAMES_PER_BUFFER:]
