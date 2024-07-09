@@ -16,8 +16,13 @@ from voice_conversion import ConversionPipeline
 # venv\Scripts\pip install gradio pyaudio librosa
 
 # Samples, rates, etc.
-input_sample_rate = 22050 # sampling rate yeah!
-output_sample_rate = 24000 # the sampling rate for output. Do not change, matches what the model outputs.
+model_48K = True
+if(model_48K):
+    input_sample_rate = 48000 # sampling rate yeah!
+    output_sample_rate = 48000 # the sampling rate for output. Do not change, matches what the model outputs.
+else:
+    input_sample_rate = 22050 # sampling rate yeah!
+    output_sample_rate = 24000 # the sampling rate for output. Do not change, matches what the model outputs.
 num_samples = 128  # input spect shape num_mels * num_samples
 hop_length = 256  # int(0.0125 * input_sample_rate)  # 12.5ms - in line with Tacotron 2 paper
 hop_length = int(0.0125 * input_sample_rate)  # Let's actually try that math, in line with Tacotron 2 paper!
@@ -43,7 +48,7 @@ outputs from the model. Now there's a single seam, a single place where the audi
 """           
 MAX_INFER_SAMPLES_VC = num_samples * hop_length
 max_input_latency = int(num_samples * 0.0125 * 1000 - 1) # Max latency in ms allowed by MAX_INFER_SAMPLES_VC. Minus 1, so we're below the limit.
-max_input_latency = max_input_latency - (max_input_latency%50) # Round down to nearly 50 for latency slider stepping. This should end up being 1550ms.
+max_input_latency = max_input_latency - (max_input_latency%50) # Round down to nearest 50 for latency slider stepping. This should end up being 1550ms.
 
 # Hardcode the seed.
 SEED = 1234  # numpy & torch PRNG seed
@@ -171,7 +176,7 @@ def setVoice(target_speaker, pauseLabel):
     else:
         return [gr.update(interactive=True), "Voice set! You can start now!"]
 
-def startGenerateVoice(input, output, latency, crossfade):
+def startGenerateVoice(input, output, latency, bufferSize, crossfade):
     global inference_rt_thread, voice_conversion, devices, input_sample_rate, output_sample_rate, MAX_INFER_SAMPLES_VC
         
     inputDevice = [p for p in devices['inputs'] if p["name"] == input];
@@ -187,13 +192,13 @@ def startGenerateVoice(input, output, latency, crossfade):
 
     voice_conversion.set_crossfade(crossfade)
 
-    inference_rt_thread = InferenceRt(inputDevice[0]["index"], outputDevice[0]["index"], latency, input_sample_rate, output_sample_rate, MAX_INFER_SAMPLES_VC, voice_conversion, queue.Queue(), queue.Queue(), args=())
+    inference_rt_thread = InferenceRt(inputDevice[0]["index"], outputDevice[0]["index"], latency, input_sample_rate, output_sample_rate, MAX_INFER_SAMPLES_VC * bufferSize, voice_conversion, queue.Queue(), queue.Queue(), args=())
     inference_rt_thread.start()
 
     # Wait for start queue
     txt = inference_rt_thread.start_queue.get()
         
-    return [gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=True), gr.update(interactive=True), txt]
+    return [gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=True), gr.update(interactive=True), txt]
     
 def pauseGenerateVoice(pauseLabel):
     global inference_rt_thread
@@ -217,7 +222,7 @@ def stopGenerateVoice():
         # Wait for end.
         inference_rt_thread.join()
     
-    return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(value="Pause", interactive=False), gr.update(interactive=False), "Stopped!"]
+    return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(value="Pause", interactive=False), gr.update(interactive=False), "Stopped!"]
 
 def startStudioVoice(target_speaker, audioIn):
     global voice_conversion, input_sample_rate, output_sample_rate
@@ -232,40 +237,6 @@ def startStudioVoice(target_speaker, audioIn):
     voice_conversion.set_target(target_speaker)
     voice_conversion.set_crossfade("none")
     
-    # WAVE file input apprach. Probably worked just fine, but Gradio will get us an int16 wav numpy natively.
-    #if not os.path.isfile(audioIn):
-        #return ["none", "Something went wrong with the audio upload! Try again!"]
-
-    #print(f"audioIn: {audioIn}")
-
-    #WAVE approach
-    #wavInFile = wave.open(audioIn, 'r')
-    #wavSampleWidth = wavInFile.getsampwidth() # Should be 4, i.e. int 32. At least an w4a converts to wav as 4.
-    #wavChannels = wavInFile.getnchannels()
-    #wavSampleRate = wavInFile.getframerate()
-    #wavFrames = wavInFile.getnframes()
-    #wavBytes = wavInFile.readframes(wavFrames)
-    
-    #print(f"wavParms: {wavInFile.getparams()}")
-    
-    # Convert buffer to float32 using NumPy                                                                                 
-    #audio_as_np_int32 = np.frombuffer(wavBytes, dtype=np.int32)
-    #audio_as_np_float32 = audio_as_np_int32.astype(np.float32)
-
-    # Normalise float32 array so that values are between -1.0 and +1.0                                                      
-    #max_int16 = 2**15
-    #audio_normalised = audio_as_np_float32 / max_int16
-    
-    #if wavSampleRate != input_sample_rate:
-        #wav_src = librosa.resample(audio_normalised, orig_sr=wavSampleRate, target_sr=input_sample_rate, res_type="soxr_vhq")
-        
-    #wav_bytes_out = voice_conversion.run(audio_normalised, 0)
-
-    # Librosa load file input apprach. Probably worked just fine, but Gradio will get us an int16 wav numpy natively. This resampled for us right off the start though.
-    # Librosa approach, resampled from start.
-    #wav_src, wav_sample = librosa.load(audioIn, dtype=np.float32, sr=input_sample_rate, res_type="soxr_vhq")
-    #wav_bytes_out = voice_conversion.run(wav_src, 0)
-
     # Direct numpy from Gradio. It's int16, so we need to convert to float32, resample if needed, then run.
     wavSampleRate = audioIn[0]
     wav_src = audioIn[1]
@@ -275,35 +246,24 @@ def startStudioVoice(target_speaker, audioIn):
         
     wav_bytes_out = voice_conversion.run(wav_src, 0)
 
-    # Wave output approach. This caused a lot of static, probably due to unhandled float32->int16 conversion.
-    #waveOutPath = os.path.join(outputDirectory, f"{time.time()}.wav")
-    #waveOutFile = wave.open(waveOutPath, 'w')
-    #waveOutFile.setsampwidth(4)
-    #waveOutFile.setnchannels(1)
-    #waveOutFile.setframerate(output_sample_rate)
-    #waveOutFile.writeframes(wav_bytes_out.tobytes())
-    #waveOutFile.close()
-        
-    #return [waveOutPath, f"Your file is ready! You can find it at {waveOutPath} or play/download it above."]
-
     # Let Gradio handle it. Float32 will be converted to Int16 automatically.
     output = (output_sample_rate, wav_bytes_out)
     
     return [output, f"Your file is ready! You can play or download it above."]
 
 def start():
-    global inference_rt_thread, voice_conversion, devices, input_sample_rate, MAX_INFER_SAMPLES_VC, voiceDirectory, max_input_latency
+    global inference_rt_thread, voice_conversion, devices, input_sample_rate, output_sample_rate, MAX_INFER_SAMPLES_VC, voiceDirectory, max_input_latency
 
     # Create the model.
     print("We're loading the model and warming it up, please standby! Approximately 30-50 seconds!")
-    voice_conversion = ConversionPipeline(input_sample_rate)
+    voice_conversion = ConversionPipeline(output_sample_rate)
     voice_conversion.set_target("yara")
     
     # warmup models into the cache
     warmup_iterations = 20
     warmup_frames_per_buffer = math.ceil(input_sample_rate * 400 / 1000) # Warm up with 1000ms mock latency
     for _ in range(warmup_iterations):
-        wav = np.random.rand(MAX_INFER_SAMPLES_VC).astype(np.float32)
+        wav = np.random.rand(MAX_INFER_SAMPLES_VC * 5).astype(np.float32)
         voice_conversion.run(wav, warmup_frames_per_buffer)
     print("Model ready and warmed up!")
     
@@ -315,14 +275,16 @@ def start():
         studio = gr.Tab("Studio")
         
         with live:
-            gr.Markdown("Select an input device, output device, adjust your input latency, and select a voice. Then press Start.  \nInput latency is how frequently the model will run. Below 100ms may produce a lot of stuttering if your GPU cannot convert audio fast enough. Watch the console and raise the latency if model is taking too long. Even if your GPU can keep up, higher latencies may be \"smoother\".  \n  \nCrossfade can be switched at any time. MVL uses linear. Disabling entirely will introduce some \"popping\".  \nThe Voice drop down can be changed at any time without stopping!  \nThe Pause button will allow your normal voice through!  \nThe Stop button will stop audio entirely, and may take up to 3 seconds to complete.")
+            gr.Markdown("Select an input device, output device, adjust your input latency, buffer size, and select a voice. Then press Start.  \n\nInput latency is how frequently the model will run. Below 100ms may produce a lot of stuttering if your GPU cannot convert audio fast enough. Watch the console and raise the latency if model is taking too long. Even if your GPU can keep up, higher latencies may be \"smoother\".  \n\nBuffer size is how much audio will be used as input. The minimum buffer size is about 1.6 seconds. Increasing this can improve smoothness, but will also use more GPU. As with latency, adjust to your GPU's performance. You may need to start, stop, and start again after changing it.  \n\nCrossfade can be switched at any time. MVL uses linear. Disabling entirely will introduce some \"popping\".  \nThe Voice drop down can be changed at any time without stopping!  \nThe Pause button will allow your normal voice through!  \nThe Stop button will stop audio entirely, and may take up to 3 seconds to complete.")
             with gr.Row():
                 inputDrop = gr.Dropdown(choices=inputNames, label="Input Device");
                 outputDrop = gr.Dropdown(choices=outputNames, label="Output Device");
-                latencySlider = gr.Slider(50, max_input_latency, label="Input latency (milliseconds)", step=10, value=300);
-                crossfadeDrop = gr.Dropdown(choices=crossFadeNames, value="linear", label="Crossfade Method");
+                latencySlider = gr.Slider(50, max_input_latency, label="Input latency (milliseconds)", step=25, value=500);
             with gr.Row():
+                crossfadeDrop = gr.Dropdown(choices=crossFadeNames, value="linear", label="Crossfade Method");
                 voiceDrop = gr.Dropdown(choices=voices, value="yara", label="Voice File");
+                bufferSizeSlider = gr.Slider(1, 10, label="Buffer Size", step=1, value=5);
+            with gr.Row():                
                 startButton = gr.Button(value="Start", interactive=True);
                 pauseButton = gr.Button(value="Pause", interactive=False);
                 stopButton = gr.Button(value="Stop", interactive=False);
@@ -331,9 +293,9 @@ def start():
                 
             crossfadeDrop.input(fn=setCrossfade, inputs=crossfadeDrop, outputs=None)
             voiceDrop.input(fn=setVoice, inputs=[voiceDrop, pauseButton], outputs=[startButton, text])
-            startButton.click(fn=startGenerateVoice, inputs=[inputDrop, outputDrop, latencySlider, crossfadeDrop], outputs=[inputDrop, outputDrop, latencySlider, startButton, pauseButton, stopButton, text])
+            startButton.click(fn=startGenerateVoice, inputs=[inputDrop, outputDrop, latencySlider, bufferSizeSlider, crossfadeDrop], outputs=[inputDrop, outputDrop, latencySlider, bufferSizeSlider, startButton, pauseButton, stopButton, text])
             pauseButton.click(fn=pauseGenerateVoice, inputs=pauseButton, outputs=[pauseButton, text])
-            stopButton.click(fn=stopGenerateVoice, inputs=[], outputs=[inputDrop, outputDrop, latencySlider, startButton, pauseButton, stopButton, text])
+            stopButton.click(fn=stopGenerateVoice, inputs=[], outputs=[inputDrop, outputDrop, latencySlider, bufferSizeSlider, startButton, pauseButton, stopButton, text])
         with studio:
             gr.Markdown("Upload some audio! Pick a voice! Convert!")
             with gr.Row():

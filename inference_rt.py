@@ -48,10 +48,10 @@ class InferenceRt(threading.Thread):
         print(f"output_sample_rate: {self.output_sample_rate}")
         print(f"MAX_INFER_SAMPLES_VC: {self.MAX_INFER_SAMPLES_VC}")
     
-        HDW_FRAMES_PER_BUFFER = math.ceil(self.input_sample_rate * self.input_latency / 5000) # Gather input audio five times faster than selected input.
-        print(f"HDW_FRAMES_PER_BUFFER: {HDW_FRAMES_PER_BUFFER}")
+        INPUT_HDW_FRAMES_PER_BUFFER = math.ceil(self.input_sample_rate * (self.input_latency / 1000) / 10) # Gather input audio ten times faster than selected input.
+        print(f"INPUT_HDW_FRAMES_PER_BUFFER: {INPUT_HDW_FRAMES_PER_BUFFER}")
         
-        NUM_CHUNKS = math.ceil(self.MAX_INFER_SAMPLES_VC / HDW_FRAMES_PER_BUFFER) * 2 # Deliberately increasing size, as this won't amount to much memory increase and allows some extra buffering.
+        NUM_CHUNKS = math.ceil(self.MAX_INFER_SAMPLES_VC / INPUT_HDW_FRAMES_PER_BUFFER) * 2 # Deliberately increasing size, as this won't amount to much memory increase and allows some extra buffering.
         print(f"NUM_CHUNKS: {NUM_CHUNKS}")
 
         # create a deque for holding incoming audio input data packets. There's no maxlen because we'll be clearing it regularly.
@@ -60,7 +60,7 @@ class InferenceRt(threading.Thread):
         # create a deque for audio conversion work
         q_work = deque(maxlen=NUM_CHUNKS)
         for _ in range(NUM_CHUNKS):
-            in_data = np.zeros(HDW_FRAMES_PER_BUFFER, dtype=np.float32)
+            in_data = np.zeros(INPUT_HDW_FRAMES_PER_BUFFER, dtype=np.float32)
             q_work.append(in_data)    
         
         # create output deque for audio output packets.
@@ -68,7 +68,7 @@ class InferenceRt(threading.Thread):
 
         # run pipeline
         try:
-            audio_input_thread = audio_input(self.__p, q_in, self.input_sample_rate, self.input_device_idx, HDW_FRAMES_PER_BUFFER)
+            audio_input_thread = audio_input(self.__p, q_in, self.input_sample_rate, self.input_device_idx, INPUT_HDW_FRAMES_PER_BUFFER)
             conversion_thread = Conversion(q_in, q_work, q_out, self.voice_conversion, self.input_latency, self.output_sample_rate, self.MAX_INFER_SAMPLES_VC)
             audio_output_thread = audio_output(self.__p, q_out, self.output_sample_rate, self.output_device_idx)
             

@@ -23,19 +23,17 @@ class StudioModelConversionPipeline(abc.ABC):
         self.device = torch.device('cpu')
         if torch.cuda.is_available():
             self.device = torch.device('cuda')
-            
-        self.mac_silicon_device = torch.backends.mps.is_available()
-
-        # Load the model.
-        self.model = torch.jit.load(os.path.join(STUDIO_MODELS_ROOT, "model.pt")).to(self.device)
 
         # Load the preprocessor.
-        if self.mac_silicon_device:
-            import coremltools as ct
-
-            self.pmodel = ct.models.MLModel(os.path.join(STUDIO_MODELS_ROOT, "model.mlpackage"))
+        self.pmodel = torch.jit.load(os.path.join(STUDIO_MODELS_ROOT, "b_model.pt")).to(self.device)
+        
+        # Load the model.
+        if(self.input_sample_rate == 48000):
+            print("Loading 48K model...")
+            self.model = torch.jit.load(os.path.join(STUDIO_MODELS_ROOT, "model_48k.pt")).to(self.device)
         else:
-            self.pmodel = torch.jit.load(os.path.join(STUDIO_MODELS_ROOT, "b_model.pt")).to(self.device)
+            print("Loading 24K model...")
+            self.model = torch.jit.load(os.path.join(STUDIO_MODELS_ROOT, "model.pt")).to(self.device)
             
         self.targetSet = False
         
@@ -66,12 +64,9 @@ class StudioModelConversionPipeline(abc.ABC):
             wav_src = librosa.resample(wav, orig_sr=self.input_sample_rate, target_sr=self.p_sampling_rate, res_type="soxr_vhq")
             #print(f"Input down sample took: {time.time()-time_start_res}")
                         
-            if not self.mac_silicon_device:
-                wav_src = torch.from_numpy(wav_src).unsqueeze(0).to(self.device)
-                c = self.pmodel(wav_src.squeeze(1))
-            else:
-                c = self.pmodel.predict({"input_values": wav_src[np.newaxis, :]})["var_3641"]
-                c = torch.from_numpy(c).to(self.device)
+            # Preprocessor
+            wav_src = torch.from_numpy(wav_src).unsqueeze(0).to(self.device)
+            c = self.pmodel(wav_src.squeeze(1))
 
             with lock:
                 audio = self.model(c, self.target)
@@ -150,30 +145,39 @@ class ConversionPipeline(StudioModelConversionPipeline):
         out = self.infer(wav)
 
         # cross-fade = fade_in + fade_out
-        out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -HDW_FRAMES_PER_BUFFER] = (
-            out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -HDW_FRAMES_PER_BUFFER] * self._linear_fade_in
-        ) + (self._old_samples * self._linear_fade_out)
+        fragment = out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -HDW_FRAMES_PER_BUFFER]
+        if(len(fragment) > 0):
+            out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -HDW_FRAMES_PER_BUFFER] = (
+                out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -HDW_FRAMES_PER_BUFFER] * self._linear_fade_in
+            ) + (self._old_samples * self._linear_fade_out)
 
-        # save old sample for next time.
-        self._old_samples = out[-self._fade_samples :]
+            # save old sample for next time.
+            self._old_samples = out[-self._fade_samples :]
 
-        # send
-        return out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -self._fade_samples]
+            # send
+            return out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -self._fade_samples]
+        else:
+            return out[-HDW_FRAMES_PER_BUFFER:]
         
     # constant power cross-fade
     def run_constant_power_crossfade(self, wav: np.ndarray, HDW_FRAMES_PER_BUFFER: int):
         out = self.infer(wav)
 
         # cross-fade = fade_in + fade_out
-        out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -HDW_FRAMES_PER_BUFFER] = (
-            out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -HDW_FRAMES_PER_BUFFER] * self._constant_power_fade_in
-        ) + (self._old_samples * self._constant_power_fade_out)
+        fragment = out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -HDW_FRAMES_PER_BUFFER]
+        if(len(fragment) > 0):
+            out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -HDW_FRAMES_PER_BUFFER] = (
+                fragment * self._constant_power_fade_in
+            ) + (self._old_samples * self._constant_power_fade_out)
 
-        # save old sample for next time.
-        self._old_samples = out[-self._fade_samples :]
+            # save old sample for next time.
+            self._old_samples = out[-self._fade_samples :]
 
-        # send
-        return out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -self._fade_samples]
+            # send
+            return out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -self._fade_samples]
+        else:
+            return out[-HDW_FRAMES_PER_BUFFER:]
+            
         
     # Direct return. Observed to have a little bit of "poppy" and crackling.
     def run_unaltered(self, wav: np.ndarray, HDW_FRAMES_PER_BUFFER: int):

@@ -48,10 +48,11 @@ class Conversion(threading.Thread):
                     pass
                 
                 if newChunks > 0:
-                    # The frames per buffer is the sampling rate times the duration of audio.
-                    # Input audio is gathering chunks 5 times faster than the selected latency. (That is, 500ms -> 100ms)
-                    # And we had this many new chunks from the input deque.
-                    HDW_FRAMES_PER_BUFFER = math.ceil(self.output_sample_rate * self.latency / 5) * newChunks
+                    # The frames per buffer is the sampling rate times the duration of audio. (Latency is in milliseconds)
+                    # Input audio is gathering chunks 10 times faster than the selected latency. (That is, 500ms -> 50ms)
+                    # So divide the number of new chunks we got by 10.
+                    # This is in case we had too few or extras from the input deque and adjust accordingly.
+                    HDW_FRAMES_PER_BUFFER = math.ceil(self.output_sample_rate * self.latency * (newChunks / 10)) 
                     #print(f"newChunks: {newChunks}, HDW_FRAMES_PER_BUFFER: {HDW_FRAMES_PER_BUFFER}")
                     
                     # q_work is a rolling queue of chunks, totalling about 1.6s of audio. This is to give the model more to work with in terms of infering intonation, etc.
