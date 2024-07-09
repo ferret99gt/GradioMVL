@@ -16,7 +16,7 @@ from voice_conversion import ConversionPipeline
 # venv\Scripts\pip install gradio pyaudio librosa
 
 # Samples, rates, etc.
-model_48K = True
+model_48K = False
 if(model_48K):
     input_sample_rate = 48000 # sampling rate yeah!
     output_sample_rate = 48000 # the sampling rate for output. Do not change, matches what the model outputs.
