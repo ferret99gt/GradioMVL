@@ -168,13 +168,13 @@ def setVoice(target_speaker, pauseLabel):
         
     voice_conversion.set_target(target_speaker)
     
-    if inference_rt_thread is not None and inference_rt_thread.is_alive():
-        if pauseLabel == "Pause":
+    try: inference_rt_thread
+    except NameError: return [gr.update(interactive=True), "Voice set! You can start now!"]
+    else:
+        if inference_rt_thread.is_alive() and pauseLabel == "Pause":
             return [gr.update(interactive=False), "Voice switched! Keep talking!"]
         else:
             return [gr.update(interactive=False), "Voice switched! Remember you are paused, your real voice is going through!"]
-    else:
-        return [gr.update(interactive=True), "Voice set! You can start now!"]
 
 def startGenerateVoice(input, output, latency, bufferSize, crossfade):
     global inference_rt_thread, voice_conversion, devices, input_sample_rate, output_sample_rate, MAX_INFER_SAMPLES_VC
