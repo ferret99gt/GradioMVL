@@ -60,18 +60,18 @@ torch.manual_seed(SEED)
 def downloadFile(file_path: str, destination_path: str):
 
     url = f"https://github.com/metavoicexyz/MetaVoiceLive/raw/main/ai/models/{file_path}?download="
-    # Send a GET request to the API endpoint
-    response = requests.get(url)
+    # Stream large model files to avoid holding gigabytes in memory.
+    with requests.get(url, stream=True) as response:
+        if response.status_code != 200:
+            print("File download failed.")
+            return
 
-    # Check if the request was successful
-    if response.status_code == 200:
-        # Save the file content to the local destination path
         with open(destination_path, "wb") as file:
-            file.write(response.content)
+            for chunk in response.iter_content(chunk_size=8 * 1024 * 1024):
+                if chunk:
+                    file.write(chunk)
 
         print("File downloaded successfully.")
-    else:
-        print("File download failed.")
 
 # Where are the voice targets?
 modelDirectory = "studio_models"
@@ -187,7 +187,7 @@ def startGenerateVoice(input, output, latency, bufferSize, crossfade):
     if outputDevice is None or len(outputDevice) != 1:
         return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), gr.update(interactive=False), "Invalid output device selected, conversion not started."]
         
-    if not voice_conversion.isTargetSet:
+    if not voice_conversion.isTargetSet():
         return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), gr.update(interactive=False), "A voice is not selected yet, conversion not started."]
 
     voice_conversion.set_crossfade(crossfade)

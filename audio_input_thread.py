@@ -36,6 +36,7 @@ class audio_input(threading.Thread):
             output=False,
             start=False,
             input_device_index=self.input_device_idx,
+            frames_per_buffer=self.HDW_FRAMES_PER_BUFFER,
         )
         io_stream.start_stream()    
     
@@ -48,7 +49,9 @@ class audio_input(threading.Thread):
                     # The model (and librosa) ultimately wants an ndarray. Convert it and ensure it's float32.
                     in_data_np = np.frombuffer(wav_bytes, dtype=np.float32)
 
-                    # q_in is a rolling queue of chunks, totalling about 1.6s of audio. This is to give the model more to work with in terms of infering intonation, etc.
+                    # q_in is a rolling queue of chunks, totalling about 1.6s of audio. Bound it and drop oldest if we are behind to keep latency from ballooning.
+                    if self.q_in.maxlen and len(self.q_in) >= self.q_in.maxlen:
+                        self.q_in.popleft()
                     self.q_in.append(in_data_np)
                 except queue.Empty:
                     pass

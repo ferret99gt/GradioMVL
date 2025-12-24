@@ -45,7 +45,7 @@ class audio_output(threading.Thread):
                         while not self.q_out.empty():
                             try:
                                 self.q_out.get_nowait()
-                            except Empty:
+                            except queue.Empty:
                                 continue
                     
                     # Write to PyAudio output. This blocks till completed. Then we'll loop and wait on the queue for more.

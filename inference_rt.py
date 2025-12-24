@@ -54,8 +54,8 @@ class InferenceRt(threading.Thread):
         NUM_CHUNKS = math.ceil(self.MAX_INFER_SAMPLES_VC / INPUT_HDW_FRAMES_PER_BUFFER) * 2 # Deliberately increasing size, as this won't amount to much memory increase and allows some extra buffering.
         print(f"NUM_CHUNKS: {NUM_CHUNKS}")
 
-        # create a deque for holding incoming audio input data packets. There's no maxlen because we'll be clearing it regularly.
-        q_in = deque()
+        # create a deque for holding incoming audio input data packets. Bound it to avoid unbounded growth if conversion lags.
+        q_in = deque(maxlen=NUM_CHUNKS * 2)
 
         # create a deque for audio conversion work
         q_work = deque(maxlen=NUM_CHUNKS)
