@@ -97,7 +97,7 @@ class ConversionPipeline(StudioModelConversionPipeline):
 
         self._sample_rate = sample_rate
         
-        fade_duration_ms = 40  # 20ms
+        fade_duration_ms = 20  # 20ms
         self._fade_samples = int(fade_duration_ms / 1000 * self._sample_rate) # sample count
 
         self._linear_fade_in = np.linspace(0, 1, self._fade_samples, dtype=np.float32)
