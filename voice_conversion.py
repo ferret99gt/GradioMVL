@@ -97,7 +97,7 @@ class ConversionPipeline(StudioModelConversionPipeline):
 
         self._sample_rate = sample_rate
         
-        fade_duration_ms = 20  # 20ms
+        fade_duration_ms = 40  # 20ms
         self._fade_samples = int(fade_duration_ms / 1000 * self._sample_rate) # sample count
 
         self._linear_fade_in = np.linspace(0, 1, self._fade_samples, dtype=np.float32)
@@ -115,6 +115,11 @@ class ConversionPipeline(StudioModelConversionPipeline):
         self._constant_power_fade_in = np.array(self._constant_power_fade_in)
         self._constant_power_fade_out = np.array(self._constant_power_fade_out)
         
+        hann = np.hanning(self._fade_samples * 2)
+        # First half rises 0->1, second half falls 1->0
+        self._hann_fade_in = hann[: self._fade_samples].astype(np.float32)
+        self._hann_fade_out = hann[self._fade_samples :].astype(np.float32)
+
         self._old_samples = np.zeros(self._fade_samples, dtype=np.float32)
         
         self.crossfade = "linear"
@@ -122,11 +127,17 @@ class ConversionPipeline(StudioModelConversionPipeline):
     def set_crossfade(self, crossfade: str):
         self.crossfade = crossfade
 
+    def reset_overlap(self):
+        # Clear carry-over to avoid clicks after pause/unpause or voice switch.
+        self._old_samples = np.zeros(self._fade_samples, dtype=np.float32)
+
     def run(self, wav: np.ndarray, HDW_FRAMES_PER_BUFFER: int):
         if self.crossfade == "linear":
             return self.run_linear_crossfade(wav, HDW_FRAMES_PER_BUFFER)
         elif self.crossfade == "constant power":
             return self.run_constant_power_crossfade(wav, HDW_FRAMES_PER_BUFFER)
+        elif self.crossfade == "hann":
+            return self.run_hann_crossfade(wav, HDW_FRAMES_PER_BUFFER)
         else:
             return self.run_unaltered(wav, HDW_FRAMES_PER_BUFFER)
             
@@ -178,6 +189,26 @@ class ConversionPipeline(StudioModelConversionPipeline):
         else:
             return out[-HDW_FRAMES_PER_BUFFER:]
             
+
+    # hann cross-fade
+    def run_hann_crossfade(self, wav: np.ndarray, HDW_FRAMES_PER_BUFFER: int):
+        out = self.infer(wav)
+
+        # cross-fade = fade_in + fade_out
+        fragment = out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -HDW_FRAMES_PER_BUFFER]
+        if len(fragment) > 0:
+            out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -HDW_FRAMES_PER_BUFFER] = (
+                fragment * self._hann_fade_in
+            ) + (self._old_samples * self._hann_fade_out)
+
+            # save old sample for next time.
+            self._old_samples = out[-self._fade_samples :]
+
+            # send
+            return out[-(HDW_FRAMES_PER_BUFFER + self._fade_samples) : -self._fade_samples]
+        else:
+            return out[-HDW_FRAMES_PER_BUFFER:]
+
         
     # Direct return. Observed to have a little bit of "poppy" and crackling.
     def run_unaltered(self, wav: np.ndarray, HDW_FRAMES_PER_BUFFER: int):

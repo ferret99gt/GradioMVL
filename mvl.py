@@ -167,14 +167,18 @@ def setVoice(target_speaker, pauseLabel):
         return [gr.update(interactive=False), "Selected Voice not found, please pick another."]
         
     voice_conversion.set_target(target_speaker)
+    voice_conversion.reset_overlap()
     
     try: inference_rt_thread
-    except NameError: return [gr.update(interactive=True), "Voice set! You can start now!"]
+    except NameError: pass
     else:
-        if inference_rt_thread.is_alive() and pauseLabel == "Pause":
-            return [gr.update(interactive=False), "Voice switched! Keep talking!"]
-        else:
-            return [gr.update(interactive=False), "Voice switched! Remember you are paused, your real voice is going through!"]
+        if inference_rt_thread.is_alive():
+            if pauseLabel == "Pause":
+                return [gr.update(interactive=False), "Voice switched! Keep talking!"]
+            else:
+                return [gr.update(interactive=False), "Voice switched! Remember you are paused, your real voice is going through!"]
+
+    return [gr.update(interactive=True), "Voice set! You can start now!"]
 
 def startGenerateVoice(input, output, latency, bufferSize, crossfade):
     global inference_rt_thread, voice_conversion, devices, input_sample_rate, output_sample_rate, MAX_INFER_SAMPLES_VC
@@ -268,7 +272,7 @@ def start():
     print("Model ready and warmed up!")
     
     # cross faders
-    crossFadeNames = ["linear", "constant power", "none"]
+    crossFadeNames = ["linear", "constant power", "hann", "none"]
 
     with gr.Blocks() as demo:
         live = gr.Tab("Live")
@@ -300,7 +304,7 @@ def start():
             gr.Markdown("Upload some audio! Pick a voice! Convert!")
             with gr.Row():
                 audioIn = gr.Audio(type="numpy", format="wav", interactive=True, label="Upload audio!")
-                audioOut = gr.Audio(type="numpy", format="wav", interactive=False, show_download_button=True, label="Download result!")
+                audioOut = gr.Audio(type="numpy", format="wav", interactive=False, buttons=["download"], label="Download result!")
             with gr.Row():
                 studioVoiceDrop = gr.Dropdown(choices=voices, interactive=True, value="yara", label="Voice File");
                 studioStartButton = gr.Button(value="Convert", interactive=True);
