@@ -25,15 +25,15 @@ def check_python_version():
     micro = sys.version_info.micro
 
     if is_windows:
-        supported_minors = [10]
+        supported_minors = [10,12]
     else:
-        supported_minors = [7, 8, 9, 10, 11]
+        supported_minors = [7, 8, 9, 10, 11,12]
 
     if not (major == 3 and minor in supported_minors):
         print(f"""
 INCOMPATIBLE PYTHON VERSION
 
-This program is tested with 3.10.6 Python, but you have {major}.{minor}.{micro}.
+This program is tested with 3.10.6 and 3.12.10 Python, but you have {major}.{minor}.{micro}.
 If you encounter an error with "RuntimeError: Couldn't install torch." message,
 or any other error regarding unsuccessful package (library) installation,
 please downgrade (or upgrade) to the latest version of 3.10 Python
@@ -44,7 +44,7 @@ You can download 3.10 Python from here: https://www.python.org/downloads/release
 Use --skip-python-version-check to suppress this warning.
 """)
 
-def run(command, desc=None, errdesc=None, custom_env=None, live: bool = 1) -> str:
+def run(command, desc=None, errdesc=None, custom_env=None, live: bool = True) -> str:
     if desc is not None:
         print(desc)
 
@@ -84,7 +84,7 @@ def is_installed(package):
 
     return spec is not None
 
-def run_pip(command, desc=None, live=1):
+def run_pip(command, desc=None, live=True):
     index_url_line = f' --index-url {index_url}' if index_url != '' else ''
     return run(f'"{python}" -m pip {command} --prefer-binary{index_url_line}', desc=f"Installing {desc}", errdesc=f"Couldn't install {desc}", live=live)
 
@@ -133,7 +133,7 @@ def requirements_met(requirements_file):
 
 
 def prepare_environment():
-    torch_command = "pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118"
+    torch_command = "pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128"
     requirements_file = "requirements.txt"
 
     check_python_version()
