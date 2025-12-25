@@ -73,6 +73,7 @@ class Conversion(threading.Thread):
                     
                     # Pause? Stop?
                     if status == "pauseToggle":
+                        self.voice_conversion.reset_overlap()
                         self.paused = not self.paused
                     else:
                         break

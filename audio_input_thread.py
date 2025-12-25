@@ -4,12 +4,13 @@ import queue
 
 import numpy as np
 import pyaudio
+from pyaudio import PyAudio
 
 from collections import deque
 
 class audio_input(threading.Thread):
     def __init__(self,
-        __p: pyaudio,
+        __p: PyAudio,
         q_in: deque,
         sample_rate: int,
         input_device_idx: int,

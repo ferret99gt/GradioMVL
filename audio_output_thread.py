@@ -2,10 +2,11 @@ import threading
 import queue
 
 import pyaudio
+from pyaudio import PyAudio
 
 class audio_output(threading.Thread):
     def __init__(self,
-        __p: pyaudio,
+        __p: PyAudio,
         q_out: queue.Queue,
         sample_rate: int,
         output_device_idx: int,
