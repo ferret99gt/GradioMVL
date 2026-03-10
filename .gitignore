@@ -8,3 +8,4 @@ studio_models/targets/eva.npy
 studio_models/targets/blake.npy
 studio_models/model.pt
 studio_models/b_model.pt
+studio_models/model_48k.pt
