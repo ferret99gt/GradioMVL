@@ -38,10 +38,17 @@ I also borrowed the launch/setup code from: https://github.com/AUTOMATIC1111/sta
  - 2023-12-20:
    - Due to the second week long outage of the Studio web site, I added a new tab allowing you to choose and convert an audio file, similar to Studio.
    - MVL's model is not nearly as good as Studio's, so don't expect miracles.
+ - 2026-07-18:
+   - Corrected the live input rate to 24kHz so capture time matches the 24kHz decoder output.
+   - Aligned inference intervals to the model's 20ms content frames.
+   - Added deterministic latent inference by default, with adjustable latent variation.
+   - Bounded all real-time queues and made overload handling discard stale audio instead of increasing latency.
+   - Added local target-voice creation from reference speech using Resemblyzer embeddings.
+   - Added adjustable 20/40/60ms crossfades and safe overlap resets when settings change.
 
 ## Setup
 
- - Install Python 3.10.x and make sure it is added to PATH.
+ - Install Python 3.10 or newer and make sure it is added to PATH.
  - Clone this repo.
  - Either open a command window and navgiate to the repo, or find it in Explorer. Run launch.bat! It will install all dependencies and then start!
    - The first time launch will take a bit as it has to download and install Torch, a 2+ gig install.
@@ -55,12 +62,14 @@ I also borrowed the launch/setup code from: https://github.com/AUTOMATIC1111/sta
  - Live:
    - Pick your input and output devices.
    - Adjust the input latency slider according to your system hardware.
-     - Input latency is how frequently the model will run. 300ms is the default.
+     - Input latency is how frequently the model will run. 200ms is the default, and values use 20ms steps to match the model's frame size.
      - Output latency is determined by your GPU's performance. As soon as the model produces audio, it will be output to you.
      - Total round trip will be the input latency + how long your GPU needs to convert audio. The conversion timing is output to the console.
-     - Testing on a RTX 2070S shows an average model response time of 60-80ms, meaning a 300ms input latency will result in a 360-380ms total latency. There may be periodic spikes.
+     - Testing on a RTX 2070S showed an average model response time of 60-80ms. There may be periodic spikes.
      - Generally recommend that you set the input latency to be double your GPU's response time or more. This is to ensure the input never overruns the model's conversion.
-     - The lower the input latency, the more frequently the model is called, and the more GPU you'll use. You may need to increase input latency if you want to convert while gaming.
+     - The lower the input latency, the more frequently the model is called and the more seams it must stitch. This model can become unstable below roughly 200ms even when the GPU keeps up.
+   - Select a crossfade type and a 20, 40, or 60ms fade duration. These can be changed while converting; longer fades hold the corresponding amount of overlap audio.
+   - Leave latent variation at zero for repeatable inference, or increase it to restore the model's original random latent sampling.
    - Pick your voice! yara is used as a default. The voice can be changed at any time, including while already converting.
    - Press Start and go!
    - Press Pause to pause the AI conversion and send your real voice.
@@ -71,10 +80,15 @@ I also borrowed the launch/setup code from: https://github.com/AUTOMATIC1111/sta
    - Press convert!
    - Wait! The first time a file is processed will take longer. After the first time, changing voices will convert again much faster.
    - Listen!
+ - Create Voice:
+   - Upload or record clean reference speech and enter a local voice name.
+   - Press Create Voice Target. The resulting 256-value target is saved under `studio_models/targets` and immediately appears in both voice lists.
+   - Reference audio and generated targets stay local.
+   - Experimental, results may not be great.
  
 ## Advanced
 
-Do you know how to make your own npy target voices? If so, just drop them in "GradioMVL\studio_models\targets" and restart!
+Target files are 256-value Resemblyzer speaker embeddings saved as NumPy arrays. Use the Create Voice tab, or place a compatible `.npy` file in `studio_models/targets` and restart.
 
 ## Todo
 

@@ -38,16 +38,17 @@ class audio_output(threading.Thread):
             while self.stop_queue.empty():
                 try:
                     # Block on model output. We have a timeout so if the model never gives us anything, we'll break the block and loop around to check stop_queue
-                    out_data = self.q_out.get(timeout=2)
-                    if not self.q_out.empty():
-                        print("output queue is overflowing")
+                    out_data = self.q_out.get(timeout=0.1)
+                    dropped = 0
+                    while True:
+                        try:
+                            out_data = self.q_out.get_nowait()
+                            dropped += 1
+                        except queue.Empty:
+                            break
 
-                        # Clear the extras. It's going to cause an audio blip but nothing we can do to prevent that.
-                        while not self.q_out.empty():
-                            try:
-                                self.q_out.get_nowait()
-                            except queue.Empty:
-                                continue
+                    if dropped:
+                        print(f"Output fell behind; dropped {dropped} stale audio chunks.")
                     
                     # Write to PyAudio output. This blocks till completed. Then we'll loop and wait on the queue for more.
                     io_stream.write(out_data)

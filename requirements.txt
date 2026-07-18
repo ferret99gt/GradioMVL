@@ -4,3 +4,4 @@ torchaudio
 gradio
 pyaudio
 librosa
+resemblyzer

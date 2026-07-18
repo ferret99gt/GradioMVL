@@ -1,9 +1,14 @@
-import gradio as gr
 import math
 import numpy as np
 import os
 import queue
 import random
+import re
+import threading
+
+os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
+
+import gradio as gr
 import requests
 import torch 
 import pyaudio
@@ -18,17 +23,19 @@ from voice_conversion import ConversionPipeline
 # Samples, rates, etc.
 model_48K = False
 if(model_48K):
-    input_sample_rate = 48000 # sampling rate yeah!
-    output_sample_rate = 48000 # the sampling rate for output. Do not change, matches what the model outputs.
+    input_sample_rate = 48000
+    output_sample_rate = 48000
 else:
-    input_sample_rate = 22050 # sampling rate yeah!
-    output_sample_rate = 24000 # the sampling rate for output. Do not change, matches what the model outputs.
-num_samples = 128  # input spect shape num_mels * num_samples
-hop_length = 256  # int(0.0125 * input_sample_rate)  # 12.5ms - in line with Tacotron 2 paper
-hop_length = int(0.0125 * input_sample_rate)  # Let's actually try that math, in line with Tacotron 2 paper!
+    input_sample_rate = 24000
+    output_sample_rate = 24000
 
-# MVL: corresponds to 1.486s of audio, or 32768 samples in the time domain. This is the number of samples fed into the VC module
-# Us: With our tweaked hop_length above, this is 35280 samples, about 1.6s of audio. This may improve the model's tone/pitch/timbre/intonation? Just a little more audio to work from.
+MODEL_FRAME_MS = 20
+BASE_CONTEXT_MS = 1600
+FADE_DURATION_MS = 20
+CAPTURE_CHUNKS_PER_INFERENCE = 10
+
+# Each content-model frame represents 20ms. The rolling context defaults to 1.6 seconds,
+# while input latency controls how often a newly generated fragment is emitted.
 """
 IMPORTANT:
 
@@ -37,8 +44,8 @@ controls how frequently the model will attempt to run, with whatever audio is av
 received. This entire queue of chunks, sized to MAX_INFER_SAMPLES_VC, is what gets sent to the model. The model infers based on the last 1.6 seconds of audio, returning a 1.6 second output
 wav. That output wav is then trimmed based on the number of new input chunks that were received, so only the "new" audio is output to you.
 
-A lower latency does not reduce the model's quality. It increases how frequently the model is called (impacting GPU usage) as well as reducing the size of the output audio. More frequent
-smaller chunks come back, leading to potential audio artifacts as the smaller chunks are streamed one by one. Each chunk is from a different model generation, so the output of the model
+A lower latency increases how frequently the model is called (impacting GPU usage) and reduces the size of each output fragment. Below roughly 200ms, this model can become unstable even
+when the GPU keeps up. More frequent, smaller chunks can also produce more stitching artifacts. Each chunk is from a different model generation, so the output of the model
 subtly shifts each time. Let's assume a 200ms input latency. When you speak for 2 seconds, what comes back is 10 individual outputs from the model, each generated separate from each other.
 So there are 10 pieces of audio that are blended together, with 9 "seams" where the audio's character may change.
 
@@ -46,9 +53,8 @@ A high latency doesn't increase the quality of the model's output. What it does 
 the outputs are less frequent and longer, they will tend to have a more consistent sound. Let's assume a 1000ms input latency. When you speak for 2 seconds, what comes back is only 2 individual
 outputs from the model. Now there's a single seam, a single place where the audio's character might change.
 """           
-MAX_INFER_SAMPLES_VC = num_samples * hop_length
-max_input_latency = int(num_samples * 0.0125 * 1000 - 1) # Max latency in ms allowed by MAX_INFER_SAMPLES_VC. Minus 1, so we're below the limit.
-max_input_latency = max_input_latency - (max_input_latency%50) # Round down to nearest 50 for latency slider stepping. This should end up being 1550ms.
+MAX_INFER_SAMPLES_VC = input_sample_rate * BASE_CONTEXT_MS // 1000
+max_input_latency = BASE_CONTEXT_MS - 100
 
 # Hardcode the seed.
 SEED = 1234  # numpy & torch PRNG seed
@@ -120,8 +126,13 @@ voices = []
 for filename in os.listdir(voiceDirectory):
     f = os.path.join(voiceDirectory, filename)
     # checking if it is a file
-    if os.path.isfile(f):
+    if os.path.isfile(f) and filename.lower().endswith(".npy"):
         voices.append(filename[0:-4])
+voices.sort()
+
+speaker_encoder = None
+speaker_encoder_lock = threading.Lock()
+inference_rt_thread = None
 
 # Collect audio devices from hostApi 0
 # MVL used only hostApi 0 and it seems fine, but should look into this again later.
@@ -156,6 +167,83 @@ def setCrossfade(crossfade):
     
     voice_conversion.set_crossfade(crossfade)
 
+def setFadeDuration(fade_duration_ms):
+    global voice_conversion
+
+    voice_conversion.set_fade_duration(fade_duration_ms)
+
+def setNoiseScale(noise_scale):
+    global voice_conversion
+
+    voice_conversion.set_noise_scale(noise_scale)
+
+def normalizeGradioAudio(audio):
+    if audio is None:
+        raise ValueError("No audio was supplied.")
+
+    sample_rate, samples = audio
+    samples = np.asarray(samples)
+    if np.issubdtype(samples.dtype, np.integer):
+        dtype_info = np.iinfo(samples.dtype)
+        scale = max(abs(dtype_info.min), dtype_info.max)
+        samples = samples.astype(np.float32) / scale
+    else:
+        samples = samples.astype(np.float32)
+
+    if samples.ndim == 2:
+        samples = samples.mean(axis=1)
+    elif samples.ndim != 1:
+        raise ValueError("Audio must be mono or stereo.")
+
+    if not np.isfinite(samples).all() or samples.size == 0:
+        raise ValueError("Audio is empty or contains invalid samples.")
+    return int(sample_rate), np.ascontiguousarray(samples)
+
+def createTargetVoice(voice_name, audio):
+    global speaker_encoder, voices
+
+    voice_name = (voice_name or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", voice_name):
+        return [gr.update(), gr.update(), "Use only letters, numbers, underscores, or hyphens in the voice name."]
+
+    try:
+        sample_rate, samples = normalizeGradioAudio(audio)
+        rms = np.sqrt(np.mean(np.square(samples, dtype=np.float64)))
+        if rms < 1e-5:
+            raise ValueError("Reference audio is silent.")
+
+        from resemblyzer import VoiceEncoder, preprocess_wav
+
+        prepared = preprocess_wav(samples, source_sr=sample_rate)
+        if prepared.size < 8000:
+            raise ValueError(
+                "Reference audio needs at least 0.5 seconds of detected speech."
+            )
+
+        with speaker_encoder_lock:
+            if speaker_encoder is None:
+                speaker_encoder = VoiceEncoder(device=str(voice_conversion.device))
+            embedding = speaker_encoder.embed_utterance(prepared)
+
+        embedding = np.asarray(embedding, dtype=np.float32)
+        if embedding.shape != (256,) or not np.isfinite(embedding).all():
+            raise ValueError("Speaker encoder did not produce a valid 256-value target.")
+
+        norm = np.linalg.norm(embedding)
+        if norm == 0:
+            raise ValueError("Speaker encoder produced an empty target.")
+        embedding /= norm
+        np.save(os.path.join(voiceDirectory, f"{voice_name}.npy"), embedding)
+
+        voices = sorted(set(voices + [voice_name]))
+        return [
+            gr.update(choices=voices, value=voice_name),
+            gr.update(choices=voices, value=voice_name),
+            f"Created local voice target '{voice_name}'.",
+        ]
+    except Exception as error:
+        return [gr.update(), gr.update(), f"Voice target creation failed: {error}"]
+
 def setVoice(target_speaker, pauseLabel):
     global inference_rt_thread, voice_conversion, voiceDirectory
 
@@ -169,38 +257,45 @@ def setVoice(target_speaker, pauseLabel):
     voice_conversion.set_target(target_speaker)
     voice_conversion.reset_overlap()
     
-    try: inference_rt_thread
-    except NameError: pass
-    else:
-        if inference_rt_thread.is_alive():
-            if pauseLabel == "Pause":
-                return [gr.update(interactive=False), "Voice switched! Keep talking!"]
-            else:
-                return [gr.update(interactive=False), "Voice switched! Remember you are paused, your real voice is going through!"]
+    if inference_rt_thread is not None and inference_rt_thread.is_alive():
+        if pauseLabel == "Pause":
+            return [gr.update(interactive=False), "Voice switched! Keep talking!"]
+        else:
+            return [gr.update(interactive=False), "Voice switched! Remember you are paused, your real voice is going through!"]
 
     return [gr.update(interactive=True), "Voice set! You can start now!"]
 
-def startGenerateVoice(input, output, latency, bufferSize, crossfade):
+def startGenerateVoice(input, output, latency, bufferSize, crossfade, fadeDuration, noiseScale):
     global inference_rt_thread, voice_conversion, devices, input_sample_rate, output_sample_rate, MAX_INFER_SAMPLES_VC
         
     inputDevice = [p for p in devices['inputs'] if p["name"] == input];
     if inputDevice is None or len(inputDevice) != 1:
-        return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), gr.update(interactive=False), "Invalid input device selected, conversion not started."]
+        return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), gr.update(interactive=False), "Invalid input device selected, conversion not started."]
         
     outputDevice = [p for p in devices['outputs'] if p["name"] == output];
     if outputDevice is None or len(outputDevice) != 1:
-        return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), gr.update(interactive=False), "Invalid output device selected, conversion not started."]
+        return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), gr.update(interactive=False), "Invalid output device selected, conversion not started."]
         
     if not voice_conversion.isTargetSet():
-        return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), gr.update(interactive=False), "A voice is not selected yet, conversion not started."]
+        return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), gr.update(interactive=False), "A voice is not selected yet, conversion not started."]
+
+    latency = int(latency)
+    if latency % MODEL_FRAME_MS != 0:
+        return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), gr.update(interactive=False), "Input latency must be a multiple of 20ms."]
 
     voice_conversion.set_crossfade(crossfade)
+    voice_conversion.set_fade_duration(fadeDuration)
+    voice_conversion.set_noise_scale(noiseScale)
 
-    inference_rt_thread = InferenceRt(inputDevice[0]["index"], outputDevice[0]["index"], latency, input_sample_rate, output_sample_rate, MAX_INFER_SAMPLES_VC * bufferSize, voice_conversion, queue.Queue(), queue.Queue(), args=())
+    context_samples = int(MAX_INFER_SAMPLES_VC * bufferSize)
+    inference_rt_thread = InferenceRt(inputDevice[0]["index"], outputDevice[0]["index"], latency, input_sample_rate, output_sample_rate, context_samples, CAPTURE_CHUNKS_PER_INFERENCE, voice_conversion, queue.Queue(), queue.Queue(), args=())
     inference_rt_thread.start()
 
     # Wait for start queue
     txt = inference_rt_thread.start_queue.get()
+    if txt.startswith("Failed:"):
+        inference_rt_thread.join()
+        return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=False), gr.update(interactive=False), txt]
         
     return [gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=True), gr.update(interactive=True), txt]
     
@@ -232,19 +327,20 @@ def startStudioVoice(target_speaker, audioIn):
     global voice_conversion, input_sample_rate, output_sample_rate
 
     if target_speaker is None or len(target_speaker) == 0:
-        return ["none", "Invalid Voice selected, please pick another."]
+        return [None, "Invalid Voice selected, please pick another."]
 
     voiceFile = os.path.join(voiceDirectory, f"{target_speaker}.npy")
     if not os.path.isfile(voiceFile):
-        return ["none", "Selected Voice not found, please pick another."]
+        return [None, "Selected Voice not found, please pick another."]
         
     voice_conversion.set_target(target_speaker)
-    voice_conversion.set_crossfade("none")
+    voice_conversion.reset_overlap()
     
-    # Direct numpy from Gradio. It's int16, so we need to convert to float32, resample if needed, then run.
-    wavSampleRate = audioIn[0]
-    wav_src = audioIn[1]
-    wav_src = wav_src.astype(np.float32)
+    try:
+        wavSampleRate, wav_src = normalizeGradioAudio(audioIn)
+    except ValueError as error:
+        return [None, str(error)]
+
     if wavSampleRate != input_sample_rate:
         wav_src = librosa.resample(wav_src, orig_sr=wavSampleRate, target_sr=input_sample_rate, res_type="soxr_vhq")
         
@@ -260,15 +356,16 @@ def start():
 
     # Create the model.
     print("We're loading the model and warming it up, please standby! Approximately 30-50 seconds!")
-    voice_conversion = ConversionPipeline(output_sample_rate)
+    voice_conversion = ConversionPipeline(input_sample_rate, output_sample_rate, FADE_DURATION_MS)
     voice_conversion.set_target("yara")
     
     # warmup models into the cache
     warmup_iterations = 20
-    warmup_frames_per_buffer = math.ceil(input_sample_rate * 400 / 1000) # Warm up with 1000ms mock latency
+    warmup_frames_per_buffer = math.ceil(output_sample_rate * 400 / 1000)
     for _ in range(warmup_iterations):
         wav = np.random.rand(MAX_INFER_SAMPLES_VC * 5).astype(np.float32)
         voice_conversion.run(wav, warmup_frames_per_buffer)
+    voice_conversion.reset_overlap()
     print("Model ready and warmed up!")
     
     # cross faders
@@ -277,17 +374,21 @@ def start():
     with gr.Blocks() as demo:
         live = gr.Tab("Live")
         studio = gr.Tab("Studio")
+        create_voice = gr.Tab("Create Voice")
         
         with live:
-            gr.Markdown("Select an input device, output device, adjust your input latency, buffer size, and select a voice. Then press Start.  \n\nInput latency is how frequently the model will run. Below 100ms may produce a lot of stuttering if your GPU cannot convert audio fast enough. Watch the console and raise the latency if model is taking too long. Even if your GPU can keep up, higher latencies may be \"smoother\".  \n\nBuffer size is how much audio will be used as input. The minimum buffer size is about 1.6 seconds. Increasing this can improve smoothness, but will also use more GPU. As with latency, adjust to your GPU's performance. You may need to start, stop, and start again after changing it.  \n\nCrossfade can be switched at any time. MVL uses linear. Disabling entirely will introduce some \"popping\".  \nThe Voice drop down can be changed at any time without stopping!  \nThe Pause button will allow your normal voice through!  \nThe Stop button will stop audio entirely, and may take up to 3 seconds to complete.")
+            gr.Markdown("Select input and output devices, tune the conversion interval and context buffer, select a voice, then press Start.  \n\nInput latency controls how often inference runs. Values are aligned to the model's 20ms audio frames. Very short intervals can degrade this model even when the GPU is fast enough.  \n\nBuffer size controls how much rolling context is sent to the model, starting at 1.6 seconds. Larger buffers consume more GPU memory and compute.  \n\nCrossfade method, fade duration, target voice, and latent variation can be changed while running. Longer fades hold the corresponding amount of overlap audio. A latent variation of zero is deterministic after warm-up.  \n\nPause passes your unmodified voice through. Stop ends audio processing.")
             with gr.Row():
                 inputDrop = gr.Dropdown(choices=inputNames, label="Input Device");
                 outputDrop = gr.Dropdown(choices=outputNames, label="Output Device");
-                latencySlider = gr.Slider(50, max_input_latency, label="Input latency (milliseconds)", step=25, value=500);
+                latencySlider = gr.Slider(40, max_input_latency, label="Input latency (milliseconds)", step=MODEL_FRAME_MS, value=200);
             with gr.Row():
                 crossfadeDrop = gr.Dropdown(choices=crossFadeNames, value="linear", label="Crossfade Method");
                 voiceDrop = gr.Dropdown(choices=voices, value="yara", label="Voice File");
                 bufferSizeSlider = gr.Slider(1, 10, label="Buffer Size", step=1, value=5);
+            with gr.Row():
+                fadeDurationSlider = gr.Slider(20, 60, label="Crossfade duration (milliseconds)", step=MODEL_FRAME_MS, value=FADE_DURATION_MS);
+                noiseScaleSlider = gr.Slider(0, 1, label="Latent variation", step=0.05, value=0);
             with gr.Row():                
                 startButton = gr.Button(value="Start", interactive=True);
                 pauseButton = gr.Button(value="Pause", interactive=False);
@@ -296,8 +397,10 @@ def start():
                 text = gr.Textbox(label="Status");
                 
             crossfadeDrop.input(fn=setCrossfade, inputs=crossfadeDrop, outputs=None)
+            fadeDurationSlider.input(fn=setFadeDuration, inputs=fadeDurationSlider, outputs=None)
+            noiseScaleSlider.input(fn=setNoiseScale, inputs=noiseScaleSlider, outputs=None)
             voiceDrop.input(fn=setVoice, inputs=[voiceDrop, pauseButton], outputs=[startButton, text])
-            startButton.click(fn=startGenerateVoice, inputs=[inputDrop, outputDrop, latencySlider, bufferSizeSlider, crossfadeDrop], outputs=[inputDrop, outputDrop, latencySlider, bufferSizeSlider, startButton, pauseButton, stopButton, text])
+            startButton.click(fn=startGenerateVoice, inputs=[inputDrop, outputDrop, latencySlider, bufferSizeSlider, crossfadeDrop, fadeDurationSlider, noiseScaleSlider], outputs=[inputDrop, outputDrop, latencySlider, bufferSizeSlider, startButton, pauseButton, stopButton, text])
             pauseButton.click(fn=pauseGenerateVoice, inputs=pauseButton, outputs=[pauseButton, text])
             stopButton.click(fn=stopGenerateVoice, inputs=[], outputs=[inputDrop, outputDrop, latencySlider, bufferSizeSlider, startButton, pauseButton, stopButton, text])
         with studio:
@@ -312,6 +415,18 @@ def start():
                 text = gr.Textbox(label="Status");
 
             studioStartButton.click(fn=startStudioVoice, inputs=[studioVoiceDrop, audioIn], outputs=[audioOut, text])
+
+        with create_voice:
+            gr.Markdown("Create a local voice target from a clean reference recording. Longer, varied speech generally gives the speaker encoder more useful material. The recording and resulting target remain on this computer.")
+            with gr.Row():
+                targetName = gr.Textbox(label="Voice name", placeholder="my_voice")
+                targetAudio = gr.Audio(type="numpy", format="wav", sources=["upload", "microphone"], interactive=True, label="Reference audio")
+            with gr.Row():
+                createTargetButton = gr.Button(value="Create Voice Target", interactive=True)
+            with gr.Row():
+                targetStatus = gr.Textbox(label="Status")
+
+            createTargetButton.click(fn=createTargetVoice, inputs=[targetName, targetAudio], outputs=[voiceDrop, studioVoiceDrop, targetStatus])
 
     demo.launch()
     

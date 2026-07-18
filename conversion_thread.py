@@ -1,99 +1,121 @@
-import math
 import queue
 import threading
 import time
 
+import librosa
 import numpy as np
 
 from collections import deque
 from voice_conversion import ConversionPipeline
 
+
 class Conversion(threading.Thread):
-    def __init__(self,
+    def __init__(
+        self,
         q_in: deque,
         q_work: deque,
         q_out: queue.Queue,
         voice_conversion: ConversionPipeline,
         latency: float,
+        input_sample_rate: int,
         output_sample_rate: int,
-        MAX_INFER_SAMPLES_VC: int,
+        max_infer_samples_vc: int,
+        capture_chunks_per_inference: int,
         args=(),
         kwargs=None,
     ):
         threading.Thread.__init__(self, args=(), kwargs=None)
- 
+
         self.q_in = q_in
         self.q_work = q_work
         self.q_out = q_out
         self.voice_conversion = voice_conversion
-        self.latency = latency / 1000 # milliseconds
-        self.output_sample_rate = output_sample_rate        
-        self.MAX_INFER_SAMPLES_VC = MAX_INFER_SAMPLES_VC
+        self.latency = latency / 1000
+        self.input_sample_rate = input_sample_rate
+        self.output_sample_rate = output_sample_rate
+        self.max_infer_samples_vc = max_infer_samples_vc
+        self.capture_chunks_per_inference = capture_chunks_per_inference
         self.status_queue = queue.Queue()
         self.paused = False
-        
+
+    def _handle_status(self, status: str) -> bool:
+        if status == "pauseToggle":
+            self.voice_conversion.reset_overlap()
+            self.paused = not self.paused
+            return True
+        return False
+
+    def _queue_latest(self, out: np.ndarray):
+        out_bytes = np.ascontiguousarray(out, dtype=np.float32).tobytes()
+        try:
+            self.q_out.put_nowait(out_bytes)
+        except queue.Full:
+            try:
+                self.q_out.get_nowait()
+            except queue.Empty:
+                pass
+            self.q_out.put_nowait(out_bytes)
+
+    def _passthrough(self, chunks: list[np.ndarray], output_frames: int) -> np.ndarray:
+        out = np.concatenate(chunks)
+        if self.input_sample_rate != self.output_sample_rate:
+            out = librosa.resample(
+                out,
+                orig_sr=self.input_sample_rate,
+                target_sr=self.output_sample_rate,
+                res_type="soxr_vhq",
+            )
+        if len(out) < output_frames:
+            out = np.pad(out, (output_frames - len(out), 0), mode="constant")
+        return out[-output_frames:].astype(np.float32, copy=False)
+
     def run(self):
+        next_run = time.perf_counter()
         try:
             while True:
-                # Time it.
-                time_start = time.time()
-                
-                # Get the PyAudio input deque data.
-                newChunks = 0
+                wait_time = max(0.0, next_run - time.perf_counter())
                 try:
-                    while True:
-                        self.q_work.append(self.q_in.popleft())
-                        newChunks += 1
-                except IndexError:
-                    pass
-                
-                if newChunks > 0:
-                    # The frames per buffer is the sampling rate times the duration of audio. (Latency is in milliseconds)
-                    # Input audio is gathering chunks 10 times faster than the selected latency. (That is, 500ms -> 50ms)
-                    # So divide the number of new chunks we got by 10.
-                    # This is in case we had too few or extras from the input deque and adjust accordingly.
-                    HDW_FRAMES_PER_BUFFER = math.ceil(self.output_sample_rate * self.latency * (newChunks / 10)) 
-                    #print(f"newChunks: {newChunks}, HDW_FRAMES_PER_BUFFER: {HDW_FRAMES_PER_BUFFER}")
-                    
-                    # q_work is a rolling queue of chunks, totalling about 1.6s of audio. This is to give the model more to work with in terms of infering intonation, etc.
-                    wav = np.array(self.q_work).flatten()[-self.MAX_INFER_SAMPLES_VC:]
-
-                    # Infer!
-                    if not self.paused:
-                        out = self.voice_conversion.run(wav, HDW_FRAMES_PER_BUFFER)
-                    else:
-                        out = wav[-HDW_FRAMES_PER_BUFFER:]
-
-                    # Queue the result up for the audio output thread.
-                    self.q_out.put_nowait(out.tobytes())
-                
-                # Check the status queue for instructions.
-                try:
-                    status = self.status_queue.get_nowait()
-                    
-                    # Pause? Stop?
-                    if status == "pauseToggle":
-                        self.voice_conversion.reset_overlap()
-                        self.paused = not self.paused
-                    else:
-                        break
-                        
+                    status = self.status_queue.get(timeout=wait_time)
+                    if self._handle_status(status):
+                        continue
+                    break
                 except queue.Empty:
                     pass
-                    
-                # We need to finish all work before self.latency or we're going to cut stuff off.
-                duration = time.time() - time_start
-                if duration < self.latency:
-                    sleep_time = self.latency - duration
-                    if(sleep_time < 0.001):
-                        sleep_time = 0.001
-                    
-                    # Sleep while waiting for new audio input.
-                    time.sleep(sleep_time)
-                else:
-                    # Report we overran, then loop back around.
+
+                new_chunks = []
+                while True:
+                    try:
+                        new_chunks.append(self.q_in.popleft())
+                    except IndexError:
+                        break
+
+                if len(new_chunks) > self.capture_chunks_per_inference:
+                    dropped = len(new_chunks) - self.capture_chunks_per_inference
+                    print(f"Input fell behind; dropped {dropped} stale capture chunks.")
+                    new_chunks = new_chunks[-self.capture_chunks_per_inference :]
+
+                if new_chunks:
+                    for chunk in new_chunks:
+                        self.q_work.append(chunk)
+
+                    input_frames = sum(len(chunk) for chunk in new_chunks)
+                    output_frames = round(
+                        input_frames * self.output_sample_rate / self.input_sample_rate
+                    )
+                    wav = np.concatenate(tuple(self.q_work))[-self.max_infer_samples_vc :]
+
+                    if self.paused:
+                        out = self._passthrough(new_chunks, output_frames)
+                    else:
+                        out = self.voice_conversion.run(wav, output_frames)
+
+                    self._queue_latest(out)
+
+                next_run += self.latency
+                finished_at = time.perf_counter()
+                if finished_at > next_run:
                     print("Model generation logic took longer than specified latency.")
-                    
+                    next_run = finished_at
         except KeyboardInterrupt:
             pass
         finally:
