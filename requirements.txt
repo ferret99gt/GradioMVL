@@ -1,7 +1,7 @@
 numpy==1.26.4
 torch
 torchaudio
-gradio
+gradio==6.2.0
 pyaudio
 librosa
 resemblyzer

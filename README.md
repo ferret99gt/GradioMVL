@@ -68,7 +68,7 @@ I also borrowed the launch/setup code from: https://github.com/AUTOMATIC1111/sta
      - Testing on a RTX 2070S showed an average model response time of 60-80ms. There may be periodic spikes.
      - Generally recommend that you set the input latency to be double your GPU's response time or more. This is to ensure the input never overruns the model's conversion.
      - The lower the input latency, the more frequently the model is called and the more seams it must stitch. This model can become unstable below roughly 200ms even when the GPU keeps up.
-   - Select a crossfade type and a 20, 40, or 60ms fade duration. These can be changed while converting; longer fades hold the corresponding amount of overlap audio.
+   - Select a crossfade type and a 20, 40, or 60ms fade duration. Hann is the default. These can be changed while converting; longer fades hold the corresponding amount of overlap audio.
    - Leave latent variation at zero for repeatable inference, or increase it to restore the model's original random latent sampling.
    - Pick your voice! yara is used as a default. The voice can be changed at any time, including while already converting.
    - Press Start and go!
@@ -81,8 +81,9 @@ I also borrowed the launch/setup code from: https://github.com/AUTOMATIC1111/sta
    - Wait! The first time a file is processed will take longer. After the first time, changing voices will convert again much faster.
    - Listen!
  - Create Voice:
-   - Upload or record clean reference speech and enter a local voice name.
+   - Drag in one or more clean reference clips, optionally record another sample, and enter a local voice name.
    - Press Create Voice Target. The resulting 256-value target is saved under `studio_models/targets` and immediately appears in both voice lists.
+   - Usable speech from all supplied clips is combined before the target embedding is generated.
    - Reference audio and generated targets stay local.
    - Experimental, results may not be great.
  

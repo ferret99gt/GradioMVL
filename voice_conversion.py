@@ -119,7 +119,7 @@ class ConversionPipeline(StudioModelConversionPipeline):
     ):
         super().__init__(input_sample_rate, output_sample_rate)
         self._overlap_lock = threading.Lock()
-        self.crossfade = "linear"
+        self.crossfade = "hann"
         self.set_fade_duration(fade_duration_ms)
 
     def set_crossfade(self, crossfade: str):

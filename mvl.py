@@ -18,7 +18,7 @@ from inference_rt import InferenceRt
 from voice_conversion import ConversionPipeline
 
 # venv\Scripts\pip3 install torch torchaudio --index-url https://download.pytorch.org/whl/cu118
-# venv\Scripts\pip install gradio pyaudio librosa
+# venv\Scripts\pip install gradio==6.2.0 pyaudio librosa
 
 # Samples, rates, etc.
 model_48K = False
@@ -199,7 +199,7 @@ def normalizeGradioAudio(audio):
         raise ValueError("Audio is empty or contains invalid samples.")
     return int(sample_rate), np.ascontiguousarray(samples)
 
-def createTargetVoice(voice_name, audio):
+def createTargetVoice(voice_name, audio_files, recorded_audio):
     global speaker_encoder, voices
 
     voice_name = (voice_name or "").strip()
@@ -207,17 +207,48 @@ def createTargetVoice(voice_name, audio):
         return [gr.update(), gr.update(), "Use only letters, numbers, underscores, or hyphens in the voice name."]
 
     try:
-        sample_rate, samples = normalizeGradioAudio(audio)
-        rms = np.sqrt(np.mean(np.square(samples, dtype=np.float64)))
-        if rms < 1e-5:
-            raise ValueError("Reference audio is silent.")
-
         from resemblyzer import VoiceEncoder, preprocess_wav
 
-        prepared = preprocess_wav(samples, source_sr=sample_rate)
+        prepared_clips = []
+        skipped_clips = 0
+
+        if audio_files is None:
+            audio_files = []
+        elif isinstance(audio_files, (str, os.PathLike)):
+            audio_files = [audio_files]
+
+        for audio_path in audio_files:
+            prepared_clip = np.asarray(preprocess_wav(audio_path), dtype=np.float32)
+            if (
+                prepared_clip.size == 0
+                or not np.isfinite(prepared_clip).all()
+                or np.sqrt(np.mean(np.square(prepared_clip, dtype=np.float64))) < 1e-5
+            ):
+                skipped_clips += 1
+                continue
+            prepared_clips.append(prepared_clip)
+
+        if recorded_audio is not None:
+            sample_rate, samples = normalizeGradioAudio(recorded_audio)
+            prepared_clip = np.asarray(
+                preprocess_wav(samples, source_sr=sample_rate), dtype=np.float32
+            )
+            if (
+                prepared_clip.size == 0
+                or not np.isfinite(prepared_clip).all()
+                or np.sqrt(np.mean(np.square(prepared_clip, dtype=np.float64))) < 1e-5
+            ):
+                skipped_clips += 1
+            else:
+                prepared_clips.append(prepared_clip)
+
+        if not prepared_clips:
+            raise ValueError("No usable speech was supplied.")
+
+        prepared = np.concatenate(prepared_clips)
         if prepared.size < 8000:
             raise ValueError(
-                "Reference audio needs at least 0.5 seconds of detected speech."
+                "Reference clips need at least 0.5 seconds of detected speech in total."
             )
 
         with speaker_encoder_lock:
@@ -236,10 +267,17 @@ def createTargetVoice(voice_name, audio):
         np.save(os.path.join(voiceDirectory, f"{voice_name}.npy"), embedding)
 
         voices = sorted(set(voices + [voice_name]))
+        duration_seconds = prepared.size / 16000
+        status = (
+            f"Created local voice target '{voice_name}' from {len(prepared_clips)} "
+            f"clip(s), totaling {duration_seconds:.1f} seconds of speech."
+        )
+        if skipped_clips:
+            status += f" Skipped {skipped_clips} empty or silent clip(s)."
         return [
             gr.update(choices=voices, value=voice_name),
             gr.update(choices=voices, value=voice_name),
-            f"Created local voice target '{voice_name}'.",
+            status,
         ]
     except Exception as error:
         return [gr.update(), gr.update(), f"Voice target creation failed: {error}"]
@@ -369,7 +407,7 @@ def start():
     print("Model ready and warmed up!")
     
     # cross faders
-    crossFadeNames = ["linear", "constant power", "hann", "none"]
+    crossFadeNames = ["hann", "linear", "constant power", "none"]
 
     with gr.Blocks() as demo:
         live = gr.Tab("Live")
@@ -383,7 +421,7 @@ def start():
                 outputDrop = gr.Dropdown(choices=outputNames, label="Output Device");
                 latencySlider = gr.Slider(40, max_input_latency, label="Input latency (milliseconds)", step=MODEL_FRAME_MS, value=200);
             with gr.Row():
-                crossfadeDrop = gr.Dropdown(choices=crossFadeNames, value="linear", label="Crossfade Method");
+                crossfadeDrop = gr.Dropdown(choices=crossFadeNames, value="hann", label="Crossfade Method");
                 voiceDrop = gr.Dropdown(choices=voices, value="yara", label="Voice File");
                 bufferSizeSlider = gr.Slider(1, 10, label="Buffer Size", step=1, value=5);
             with gr.Row():
@@ -399,7 +437,7 @@ def start():
             crossfadeDrop.input(fn=setCrossfade, inputs=crossfadeDrop, outputs=None)
             fadeDurationSlider.input(fn=setFadeDuration, inputs=fadeDurationSlider, outputs=None)
             noiseScaleSlider.input(fn=setNoiseScale, inputs=noiseScaleSlider, outputs=None)
-            voiceDrop.input(fn=setVoice, inputs=[voiceDrop, pauseButton], outputs=[startButton, text])
+            voiceDrop.change(fn=setVoice, inputs=[voiceDrop, pauseButton], outputs=[startButton, text])
             startButton.click(fn=startGenerateVoice, inputs=[inputDrop, outputDrop, latencySlider, bufferSizeSlider, crossfadeDrop, fadeDurationSlider, noiseScaleSlider], outputs=[inputDrop, outputDrop, latencySlider, bufferSizeSlider, startButton, pauseButton, stopButton, text])
             pauseButton.click(fn=pauseGenerateVoice, inputs=pauseButton, outputs=[pauseButton, text])
             stopButton.click(fn=stopGenerateVoice, inputs=[], outputs=[inputDrop, outputDrop, latencySlider, bufferSizeSlider, startButton, pauseButton, stopButton, text])
@@ -417,16 +455,18 @@ def start():
             studioStartButton.click(fn=startStudioVoice, inputs=[studioVoiceDrop, audioIn], outputs=[audioOut, text])
 
         with create_voice:
-            gr.Markdown("Create a local voice target from a clean reference recording. Longer, varied speech generally gives the speaker encoder more useful material. The recording and resulting target remain on this computer.")
+            gr.Markdown("Create a local voice target from clean reference speech. Drag in one or more short clips, optionally record another sample, then create the target. Longer, varied speech generally gives the speaker encoder more useful material. The recordings and resulting target remain on this computer.")
             with gr.Row():
                 targetName = gr.Textbox(label="Voice name", placeholder="my_voice")
-                targetAudio = gr.Audio(type="numpy", format="wav", sources=["upload", "microphone"], interactive=True, label="Reference audio")
+                targetFiles = gr.File(file_count="multiple", file_types=["audio"], type="filepath", interactive=True, label="Reference audio clips")
+            with gr.Row():
+                targetRecording = gr.Audio(type="numpy", format="wav", sources=["microphone"], interactive=True, label="Optional microphone recording")
             with gr.Row():
                 createTargetButton = gr.Button(value="Create Voice Target", interactive=True)
             with gr.Row():
                 targetStatus = gr.Textbox(label="Status")
 
-            createTargetButton.click(fn=createTargetVoice, inputs=[targetName, targetAudio], outputs=[voiceDrop, studioVoiceDrop, targetStatus])
+            createTargetButton.click(fn=createTargetVoice, inputs=[targetName, targetFiles, targetRecording], outputs=[voiceDrop, studioVoiceDrop, targetStatus])
 
     demo.launch()
     
