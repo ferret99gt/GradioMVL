@@ -38,6 +38,20 @@ I also borrowed the launch/setup code from: https://github.com/AUTOMATIC1111/sta
  - 2023-12-20:
    - Due to the second week long outage of the Studio web site, I added a new tab allowing you to choose and convert an audio file, similar to Studio.
    - MVL's model is not nearly as good as Studio's, so don't expect miracles.
+ - 2024-07-08:
+   - Added optional support for the 48kHz MVL decoder while keeping the 24kHz model as the default.
+   - Added the Buffer Size control, allowing longer rolling context than the model's original 1.6-second minimum at the cost of additional inference work.
+   - Updated real-time chunk sizing and crossfade handling for variable context lengths.
+ - 2024-07-11:
+   - Pinned NumPy to 1.26.4 because NumPy 2.x was incompatible with the Torch build in use.
+ - 2025-01-20:
+   - Fixed voice selection before the live inference thread had been created.
+ - 2025-12-24:
+   - Added the Hann crossfade option and reset overlap state when switching voices.
+   - Restored the 20ms default fade duration and updated Gradio's audio download-button API.
+   - Streamed large model downloads to disk and added early input-buffer overrun protection.
+   - Confirmed Python 3.12.10 support and updated the launcher from CUDA 11.8 to the CUDA 12.8 Torch package index.
+   - Cleaned up PyAudio type annotations and several startup/runtime checks.
  - 2026-07-18:
    - Corrected the live input rate to 24kHz so capture time matches the 24kHz decoder output.
    - Aligned inference intervals to the model's 20ms content frames.
@@ -45,6 +59,10 @@ I also borrowed the launch/setup code from: https://github.com/AUTOMATIC1111/sta
    - Bounded all real-time queues and made overload handling discard stale audio instead of increasing latency.
    - Added local target-voice creation from reference speech using Resemblyzer embeddings.
    - Added adjustable 20/40/60ms crossfades and safe overlap resets when settings change.
+   - Upgraded to Gradio 6.2 and added multi-file reference uploads for local target creation.
+   - Made Hann the default crossfade and fixed programmatic voice selections so newly created targets load immediately.
+   - Added automatic Studio stereo-to-mono conversion and direct source-rate conversion to the model's 16kHz content encoder.
+   - Explicitly exported Studio results as normalized 16-bit PCM at the selected decoder's 24kHz or 48kHz output rate.
 
 ## Setup
 
