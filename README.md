@@ -59,7 +59,7 @@ I also borrowed the launch/setup code from: https://github.com/AUTOMATIC1111/sta
    - Bounded all real-time queues and made overload handling discard stale audio instead of increasing latency.
    - Added local target-voice creation from reference speech using Resemblyzer embeddings.
    - Added adjustable 20/40/60ms crossfades and safe overlap resets when settings change.
-   - Upgraded to Gradio 6.2 and added multi-file reference uploads for local target creation.
+   - Upgraded to Gradio 6.20 and added multi-file reference uploads for local target creation.
    - Made Hann the default crossfade and fixed programmatic voice selections so newly created targets load immediately.
    - Added automatic Studio stereo-to-mono conversion and direct source-rate conversion to the model's 16kHz content encoder.
    - Explicitly exported Studio results as normalized 16-bit PCM at the selected decoder's 24kHz or 48kHz output rate.
