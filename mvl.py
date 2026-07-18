@@ -40,9 +40,9 @@ CAPTURE_CHUNKS_PER_INFERENCE = 10
 IMPORTANT:
 
 The model is ALWAYS given the MAX_INFER_SAMPLES_VC amount of audio. A lower latency doesn't reduce the data the model receives. A higher latency doesn't increase it. The input latency
-controls how frequently the model will attempt to run, with whatever audio is available from the input stream is read. Each time it reads data, it tracks how many new chunks of audio it
-received. This entire queue of chunks, sized to MAX_INFER_SAMPLES_VC, is what gets sent to the model. The model infers based on the last 1.6 seconds of audio, returning a 1.6 second output
-wav. That output wav is then trimmed based on the number of new input chunks that were received, so only the "new" audio is output to you.
+controls how much new microphone audio is gathered for each inference. The microphone's hardware clock drives conversion: once one complete batch has been captured, it is appended to
+the rolling context and sent to the model. The model infers based on the last 1.6 seconds of audio, returning a 1.6 second output wav. That output wav is then trimmed to the exact duration
+of the newly captured batch, so only the "new" audio is output to you.
 
 A lower latency increases how frequently the model is called (impacting GPU usage) and reduces the size of each output fragment. Below roughly 200ms, this model can become unstable even
 when the GPU keeps up. More frequent, smaller chunks can also produce more stitching artifacts. Each chunk is from a different model generation, so the output of the model

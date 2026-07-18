@@ -59,7 +59,7 @@ class InferenceRt(threading.Thread):
         print(f"INPUT_HDW_FRAMES_PER_BUFFER: {input_frames_per_buffer}")
 
         work_chunks = math.ceil(self.max_infer_samples_vc / input_frames_per_buffer)
-        q_in = deque(maxlen=self.capture_chunks_per_inference * 2)
+        q_in = queue.Queue(maxsize=self.capture_chunks_per_inference * 2)
         q_work = deque(maxlen=work_chunks)
         for _ in range(work_chunks):
             q_work.append(np.zeros(input_frames_per_buffer, dtype=np.float32))
@@ -83,7 +83,6 @@ class InferenceRt(threading.Thread):
                 q_work,
                 q_out,
                 self.voice_conversion,
-                self.input_latency,
                 self.input_sample_rate,
                 self.output_sample_rate,
                 self.max_infer_samples_vc,
@@ -97,7 +96,7 @@ class InferenceRt(threading.Thread):
             startup_deadline = time.perf_counter() + max(
                 5.0, self.input_latency / 1000 * 2
             )
-            while len(q_in) < self.capture_chunks_per_inference:
+            while q_in.qsize() < self.capture_chunks_per_inference:
                 if not audio_input_thread.is_alive():
                     raise RuntimeError("Audio input stream stopped during startup.")
                 if time.perf_counter() >= startup_deadline:

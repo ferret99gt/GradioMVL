@@ -63,6 +63,7 @@ I also borrowed the launch/setup code from: https://github.com/AUTOMATIC1111/sta
    - Made Hann the default crossfade and fixed programmatic voice selections so newly created targets load immediately.
    - Added automatic Studio stereo-to-mono conversion and direct source-rate conversion to the model's 16kHz content encoder.
    - Explicitly exported Studio results as normalized 16-bit PCM at the selected decoder's 24kHz or 48kHz output rate.
+   - Paced live inference from complete microphone-frame batches instead of an independent wall-clock timer.
 
 ## Setup
 
@@ -80,7 +81,7 @@ I also borrowed the launch/setup code from: https://github.com/AUTOMATIC1111/sta
  - Live:
    - Pick your input and output devices.
    - Adjust the input latency slider according to your system hardware.
-     - Input latency is how frequently the model will run. 200ms is the default, and values use 20ms steps to match the model's frame size.
+     - Input latency is how much new microphone audio is gathered before each model run. 200ms is the default, and values use 20ms steps to match the model's frame size.
      - Output latency is determined by your GPU's performance. As soon as the model produces audio, it will be output to you.
      - Total round trip will be the input latency + how long your GPU needs to convert audio. The conversion timing is output to the console.
      - Testing on a RTX 2070S showed an average model response time of 60-80ms. There may be periodic spikes.
