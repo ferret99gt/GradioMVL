@@ -76,6 +76,7 @@ I also borrowed the launch/setup code from: https://github.com/AUTOMATIC1111/sta
    - Press Stop to shutdown the audio completely. This is required to change the input/output devices or the input latency.
  - Studio:
    - Choose an audio file!
+   - Stereo audio is automatically mixed down to mono, and source sample rates are converted internally for the model.
    - Choose a voice!
    - Press convert!
    - Wait! The first time a file is processed will take longer. After the first time, changing voices will convert again much faster.

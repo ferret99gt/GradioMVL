@@ -191,13 +191,27 @@ def normalizeGradioAudio(audio):
         samples = samples.astype(np.float32)
 
     if samples.ndim == 2:
-        samples = samples.mean(axis=1)
+        # Gradio provides multichannel audio as (samples, channels), while
+        # librosa expects (..., samples).
+        samples = librosa.to_mono(samples.T)
     elif samples.ndim != 1:
         raise ValueError("Audio must be mono or stereo.")
 
     if not np.isfinite(samples).all() or samples.size == 0:
         raise ValueError("Audio is empty or contains invalid samples.")
     return int(sample_rate), np.ascontiguousarray(samples)
+
+def floatAudioToInt16(samples):
+    samples = np.asarray(samples, dtype=np.float32)
+    if samples.size == 0 or not np.isfinite(samples).all():
+        raise ValueError("Converted audio is empty or contains invalid samples.")
+
+    peak = np.max(np.abs(samples))
+    if peak == 0:
+        return np.zeros(samples.shape, dtype=np.int16)
+
+    samples = np.clip(samples / peak, -1.0, 1.0)
+    return (samples * 32767).astype(np.int16)
 
 def createTargetVoice(voice_name, audio_files, recorded_audio):
     global speaker_encoder, voices
@@ -362,7 +376,7 @@ def stopGenerateVoice():
     return [gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True), gr.update(value="Pause", interactive=False), gr.update(interactive=False), "Stopped!"]
 
 def startStudioVoice(target_speaker, audioIn):
-    global voice_conversion, input_sample_rate, output_sample_rate
+    global voice_conversion, output_sample_rate
 
     if target_speaker is None or len(target_speaker) == 0:
         return [None, "Invalid Voice selected, please pick another."]
@@ -379,13 +393,12 @@ def startStudioVoice(target_speaker, audioIn):
     except ValueError as error:
         return [None, str(error)]
 
-    if wavSampleRate != input_sample_rate:
-        wav_src = librosa.resample(wav_src, orig_sr=wavSampleRate, target_sr=input_sample_rate, res_type="soxr_vhq")
-        
-    wav_bytes_out = voice_conversion.run(wav_src, 0)
+    # Studio input goes directly from its source rate to the model's 16kHz
+    # content rate. Avoid an unnecessary intermediate conversion to the live
+    # capture rate.
+    wav_bytes_out = voice_conversion.runCustomSampleRate(wav_src, wavSampleRate)
 
-    # Let Gradio handle it. Float32 will be converted to Int16 automatically.
-    output = (output_sample_rate, wav_bytes_out)
+    output = (output_sample_rate, floatAudioToInt16(wav_bytes_out))
     
     return [output, f"Your file is ready! You can play or download it above."]
 
@@ -442,7 +455,7 @@ def start():
             pauseButton.click(fn=pauseGenerateVoice, inputs=pauseButton, outputs=[pauseButton, text])
             stopButton.click(fn=stopGenerateVoice, inputs=[], outputs=[inputDrop, outputDrop, latencySlider, bufferSizeSlider, startButton, pauseButton, stopButton, text])
         with studio:
-            gr.Markdown("Upload some audio! Pick a voice! Convert!")
+            gr.Markdown("Upload some audio, pick a voice, and convert. Stereo audio is automatically mixed down to mono, and input sample rates are converted internally for the model.")
             with gr.Row():
                 audioIn = gr.Audio(type="numpy", format="wav", interactive=True, label="Upload audio!")
                 audioOut = gr.Audio(type="numpy", format="wav", interactive=False, buttons=["download"], label="Download result!")
