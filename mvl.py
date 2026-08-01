@@ -17,9 +17,6 @@ import librosa
 from inference_rt import InferenceRt
 from voice_conversion import ConversionPipeline
 
-# venv\Scripts\pip3 install torch torchaudio --index-url https://download.pytorch.org/whl/cu118
-# venv\Scripts\pip install gradio==6.20.0 pyaudio librosa
-
 # Samples, rates, etc.
 model_48K = False
 if(model_48K):

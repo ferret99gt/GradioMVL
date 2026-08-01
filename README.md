@@ -122,17 +122,29 @@ Current operational diagnostics report inference runs that exceed their captured
    - Explicitly exported Studio results as normalized 16-bit PCM at the selected decoder's 24kHz or 48kHz output rate.
    - Paced live inference from complete microphone-frame batches instead of an independent wall-clock timer.
    - Documented recovered model and code provenance, preserved model fingerprints, and marked the project as effectively frozen.
+ - 2026-08-01:
+   - Added separate AMD ROCm 7.2.1 launch paths for Windows and Linux while retaining CUDA 12.8 as the default.
+   - Added shell launchers for Linux and isolated CUDA/ROCm virtual environments so the two Torch builds cannot overwrite each other.
+   - Added startup validation that reports the selected Torch backend and GPU before loading the models.
 
 ## Setup
 
- - Install Python 3.12 and make sure it is added to PATH. Python 3.12.10 is the recorded known-good version.
- - Clone this repo.
- - Either open a command window and navgiate to the repo, or find it in Explorer. Run launch.bat! It will install all dependencies and then start!
-   - The first time launch will take a bit as it has to download and install Torch, a 2+ gig install.
-   - It will also download the models from the MetaVoiceLive github repo. The preprocessor model is about 1.2 gig so may take a moment as well.
-   - GradioMVL makes a Python VENV, so everything is self-contained. You can delete the repo entirely and it'll all be cleaned up.
- - GradioMVL will load the model. There is a warm-up process that takes approximately 30-45 seconds to complete.
- - When you're told to open localhost:7860 you're ready to go! Just open it in your web browser.
+Install Python 3.12 and clone this repository. Python 3.12.10 is the recorded known-good version. Then use the launcher for your platform and GPU:
+
+| Platform | GPU backend | Command | Virtual environment |
+| --- | --- | --- | --- |
+| Windows | NVIDIA CUDA 12.8 | `launch.bat` | `venv` |
+| Windows | AMD ROCm 7.2.1 | `launch-rocm.bat` | `venv-rocm` |
+| Linux | NVIDIA CUDA 12.8 | `sh launch.sh` | `venv` |
+| Linux | AMD ROCm 7.2.1 | `sh launch-rocm.sh` | `venv-rocm` |
+
+The launchers install the appropriate Torch build and all remaining Python dependencies. The first run downloads more than 2GB of Torch packages and then the MetaVoice Live models; `b_model.pt` alone is about 1.2GB. Model loading includes a warm-up that takes approximately 30-45 seconds. When the console reports `localhost:7860`, open that address in a browser.
+
+On Debian or Ubuntu, install the system packages needed to create a virtual environment and build PyAudio first. For example: `sudo apt install python3.12-venv portaudio19-dev ffmpeg`.
+
+ROCm support follows AMD's official PyTorch 2.9.1/ROCm 7.2.1 packages and should be considered experimental until exercised on supported AMD hardware. Windows requires Windows 11, AMD's required graphics driver, and a GPU in the [Windows support matrix](https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/compatibility/compatibilityrad/windows/windows_compatibility.html). Linux requires a working ROCm host installation on a combination in the [Linux support matrix](https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/compatibility/compatibilityrad/native_linux/native_linux_compatibility.html). See AMD's [Windows](https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/install/installryz/windows/install-pytorch.html) and [Linux](https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/install/installrad/native_linux/install-pytorch.html) installation notes for driver and operating-system prerequisites.
+
+PyTorch deliberately exposes AMD HIP devices through its existing `torch.cuda` API. The bundled TorchScript models' `cuda:0` device references are therefore retained for both backends rather than rewritten.
  
 ## Use
 
@@ -168,7 +180,3 @@ Current operational diagnostics report inference runs that exceed their captured
 ## Advanced
 
 Target files are 256-value `float32` speaker embeddings compatible with the FreeVC conditioning input and saved as NumPy arrays. MetaVoice's supplied targets are nonnegative and L2-normalized; `zero.npy` is the intentional all-zero exception. The Create Voice tab produces structurally compatible vectors with Resemblyzer, or you can place a compatible `.npy` file in `studio_models/targets` and restart. The exact encoder used to create MetaVoice's supplied targets was not published.
-
-## Todo
-
- - Need to add a launch.sh for Linux.

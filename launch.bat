@@ -1,7 +1,10 @@
 @echo off
 
+cd /d "%~dp0"
+
 if not defined PYTHON (set PYTHON=python)
-if not defined VENV_DIR (set "VENV_DIR=%~dp0%venv")
+if not defined VENV_DIR (set "VENV_DIR=%~dp0venv")
+if not defined TORCH_BACKEND (set "TORCH_BACKEND=cuda")
 
 
 set ERROR_REPORTING=FALSE
@@ -61,7 +64,7 @@ type tmp\stdout.txt
 
 :show_stderr
 for /f %%i in ("tmp\stderr.txt") do set size=%%~zi
-if %size% equ 0 goto :show_stderr
+if %size% equ 0 goto :endofscript
 echo.
 echo stderr:
 type tmp\stderr.txt

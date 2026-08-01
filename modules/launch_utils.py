@@ -1,48 +1,36 @@
-# this scripts installs necessary requirements and launches main program in webui.py
+# This script installs the necessary requirements and launches GradioMVL.
 import re
 import subprocess
 import os
 import sys
 import importlib.util
 import platform
-import json
-from functools import lru_cache
 
 script_path = "."
 
 python = sys.executable
-git = os.environ.get('GIT', "git")
 index_url = os.environ.get('INDEX_URL', "")
 re_requirement = re.compile(r"\s*([-_a-zA-Z0-9]+)\s*(?:==\s*([-+_.a-zA-Z0-9]+))?\s*")
+
+SUPPORTED_TORCH_BACKENDS = {"cuda", "rocm"}
+CUDA_TORCH_INDEX = "https://download.pytorch.org/whl/cu128"
+ROCM_VERSION = "7.2.1"
+ROCM_WINDOWS_BASE_URL = f"https://repo.radeon.com/rocm/windows/rocm-rel-{ROCM_VERSION}"
+ROCM_LINUX_BASE_URL = f"https://repo.radeon.com/rocm/manylinux/rocm-rel-{ROCM_VERSION}"
 
 if 'GRADIO_ANALYTICS_ENABLED' not in os.environ:
     os.environ['GRADIO_ANALYTICS_ENABLED'] = 'False'
 
 def check_python_version():
-    is_windows = platform.system() == "Windows"
     major = sys.version_info.major
     minor = sys.version_info.minor
     micro = sys.version_info.micro
 
-    if is_windows:
-        supported_minors = [10,12]
-    else:
-        supported_minors = [7, 8, 9, 10, 11,12]
-
-    if not (major == 3 and minor in supported_minors):
-        print(f"""
-INCOMPATIBLE PYTHON VERSION
-
-This program is tested with 3.10.6 and 3.12.10 Python, but you have {major}.{minor}.{micro}.
-If you encounter an error with "RuntimeError: Couldn't install torch." message,
-or any other error regarding unsuccessful package (library) installation,
-please downgrade (or upgrade) to the latest version of 3.10 Python
-and delete current Python and "venv" folder in WebUI's directory.
-
-You can download 3.10 Python from here: https://www.python.org/downloads/release/python-3106/
-
-Use --skip-python-version-check to suppress this warning.
-""")
+    if (major, minor) != (3, 12):
+        raise RuntimeError(
+            "GradioMVL requires Python 3.12. "
+            f"The selected interpreter is Python {major}.{minor}.{micro}."
+        )
 
 def run(command, desc=None, errdesc=None, custom_env=None, live: bool = True) -> str:
     if desc is not None:
@@ -84,8 +72,8 @@ def is_installed(package):
 
     return spec is not None
 
-def run_pip(command, desc=None, live=True):
-    index_url_line = f' --index-url {index_url}' if index_url != '' else ''
+def run_pip(command, desc=None, live=True, use_index_url=True):
+    index_url_line = f' --index-url {index_url}' if use_index_url and index_url != '' else ''
     return run(f'"{python}" -m pip {command} --prefer-binary{index_url_line}', desc=f"Installing {desc}", errdesc=f"Couldn't install {desc}", live=live)
 
 
@@ -95,16 +83,16 @@ def check_run_python(code: str) -> bool:
 
 def requirements_met(requirements_file):
     """
-    Does a simple parse of a requirements.txt file to determine if all rerqirements in it
+    Does a simple parse of a requirements.txt file to determine if all requirements in it
     are already installed. Returns True if so, False if not installed or parsing fails.
     """
 
     import importlib.metadata
-    #import packaging.version
 
     with open(requirements_file, "r", encoding="utf8") as file:
         for line in file:
-            if line.strip() == "":
+            line = line.split("#", 1)[0].strip()
+            if line == "":
                 continue
 
             m = re.match(re_requirement, line)
@@ -112,42 +100,145 @@ def requirements_met(requirements_file):
                 return False
 
             package = m.group(1).strip()
-            """
             version_required = (m.group(2) or "").strip()
-
-            if version_required == "":
-                continue
-            """
 
             try:
                 version_installed = importlib.metadata.version(package)
             except Exception:
                 return False
 
-            """
-            if packaging.version.parse(version_required) != packaging.version.parse(version_installed):
+            if version_required and version_required != version_installed:
                 return False
-            """
 
     return True
 
 
+def requested_torch_backend():
+    backend = os.environ.get("TORCH_BACKEND", "cuda").strip().lower()
+    if backend not in SUPPORTED_TORCH_BACKENDS:
+        choices = ", ".join(sorted(SUPPORTED_TORCH_BACKENDS))
+        raise RuntimeError(f"Unsupported TORCH_BACKEND '{backend}'. Choose one of: {choices}.")
+    return backend
+
+
+def torch_install_commands(backend, system_name=None):
+    """Return pip arguments and descriptions for the selected GPU backend."""
+    system_name = system_name or platform.system()
+
+    if backend == "cuda":
+        return [
+            (
+                f"install torch torchaudio --index-url {CUDA_TORCH_INDEX}",
+                "PyTorch for NVIDIA CUDA",
+            )
+        ]
+
+    if backend != "rocm":
+        raise RuntimeError(f"Unsupported Torch backend: {backend}")
+
+    if system_name == "Windows":
+        sdk_packages = " ".join(
+            [
+                f"{ROCM_WINDOWS_BASE_URL}/rocm_sdk_core-{ROCM_VERSION}-py3-none-win_amd64.whl",
+                f"{ROCM_WINDOWS_BASE_URL}/rocm_sdk_devel-{ROCM_VERSION}-py3-none-win_amd64.whl",
+                f"{ROCM_WINDOWS_BASE_URL}/rocm_sdk_libraries_custom-{ROCM_VERSION}-py3-none-win_amd64.whl",
+                f"{ROCM_WINDOWS_BASE_URL}/rocm-{ROCM_VERSION}.tar.gz",
+            ]
+        )
+        torch_packages = " ".join(
+            [
+                f"{ROCM_WINDOWS_BASE_URL}/torch-2.9.1%2Brocm{ROCM_VERSION}-cp312-cp312-win_amd64.whl",
+                f"{ROCM_WINDOWS_BASE_URL}/torchaudio-2.9.1%2Brocm{ROCM_VERSION}-cp312-cp312-win_amd64.whl",
+            ]
+        )
+        return [
+            (f"install --no-cache-dir {sdk_packages}", "ROCm SDK 7.2.1"),
+            (f"install --no-cache-dir {torch_packages}", "PyTorch for AMD ROCm"),
+        ]
+
+    if system_name == "Linux":
+        torch_packages = " ".join(
+            [
+                f"{ROCM_LINUX_BASE_URL}/torch-2.9.1%2Brocm{ROCM_VERSION}.lw.gitff65f5bc-cp312-cp312-linux_x86_64.whl",
+                f"{ROCM_LINUX_BASE_URL}/torchaudio-2.9.0%2Brocm{ROCM_VERSION}.gite3c6ee2b-cp312-cp312-linux_x86_64.whl",
+                f"{ROCM_LINUX_BASE_URL}/triton-3.5.1%2Brocm{ROCM_VERSION}.gita272dfa8-cp312-cp312-linux_x86_64.whl",
+            ]
+        )
+        return [
+            (f"install --no-cache-dir {torch_packages}", "PyTorch for AMD ROCm"),
+        ]
+
+    raise RuntimeError("ROCm launch is supported only on Windows and Linux.")
+
+
+def installed_torch_backend():
+    try:
+        import torch
+    except Exception as exc:
+        raise RuntimeError(
+            "PyTorch is installed but could not be imported. Delete the selected virtual "
+            "environment and launch again to rebuild it."
+        ) from exc
+
+    if getattr(torch.version, "hip", None):
+        backend = "rocm"
+        runtime_version = torch.version.hip
+    elif getattr(torch.version, "cuda", None):
+        backend = "cuda"
+        runtime_version = torch.version.cuda
+    else:
+        backend = "cpu"
+        runtime_version = "none"
+
+    return torch, backend, runtime_version
+
+
+def verify_torch_backend(expected_backend):
+    torch, actual_backend, runtime_version = installed_torch_backend()
+
+    if actual_backend != expected_backend:
+        environment = os.environ.get("VENV_DIR", "the selected virtual environment")
+        raise RuntimeError(
+            f"{environment} contains a {actual_backend.upper()} PyTorch build, but the "
+            f"{expected_backend.upper()} launcher was selected. Use separate virtual "
+            "environments or delete this one and launch again."
+        )
+
+    # PyTorch intentionally exposes AMD HIP devices through the torch.cuda API.
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            f"The {expected_backend.upper()} PyTorch build is installed, but no compatible "
+            "GPU is available. Check the graphics driver and GPU support matrix."
+        )
+
+    device_name = torch.cuda.get_device_name(0)
+    print(
+        f"PyTorch {torch.__version__}: {expected_backend.upper()} {runtime_version}; "
+        f"device 0 is {device_name}"
+    )
+
+
 def prepare_environment():
-    torch_command = "pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128"
     requirements_file = "requirements.txt"
 
     check_python_version()
 
+    backend = requested_torch_backend()
+
     print(f"Python {sys.version}")
+    print(f"Requested GPU backend: {backend.upper()}")
 
     if not is_installed("torch"):
-        run(f'"{python}" -m {torch_command}', "Installing torch", "Couldn't install torch", live=True)
+        for command, description in torch_install_commands(backend):
+            run_pip(command, description, live=True, use_index_url=False)
 
     if not os.path.isfile(requirements_file):
         requirements_file = os.path.join(script_path, requirements_file)
 
     if not requirements_met(requirements_file):
         run_pip(f"install -r \"{requirements_file}\"", "requirements")
+
+    verify_torch_backend(backend)
 
 
 def start():

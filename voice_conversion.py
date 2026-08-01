@@ -20,7 +20,10 @@ class StudioModelConversionPipeline(abc.ABC):
         self.output_sample_rate = output_sample_rate
 
         if not torch.cuda.is_available():
-            raise RuntimeError("The bundled MetaVoice models require a CUDA-capable GPU.")
+            raise RuntimeError(
+                "The bundled MetaVoice models require a CUDA- or ROCm-capable GPU "
+                "with the matching PyTorch build."
+            )
 
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = True
